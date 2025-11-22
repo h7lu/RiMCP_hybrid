@@ -476,9 +476,10 @@ ENV/
 index/vec/
 index/graph.csc.bin
 index/graph.csr.bin
-index/graph.nodes.tsv
 index/meta/
 index/lucene/
+index/graph.meta.json
+index/graph.nodes.tsv
 
 # RimWorld specific - EXCLUDE ALL COPYRIGHTED MATERIAL
 RimWorldData/

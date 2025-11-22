@@ -55,8 +55,16 @@ cd src\RimWorldCodeRag
 dotnet run -- index --root "..\..\RimWorldData" --python-batch 128
 ```
 
+### 使用持久嵌入服务器（避免每次批次冷启动）：
+
+```bash
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --embedding-server "http://127.0.0.1:5000"
+```
+
 **注意：** --force 强制清空/刷新已有索引并从头构建，适用于修复字段存储或切分规则变更后的完全重建。常规更新可去掉 --force 以启动增量构建，更快且保留未变更的数据。
 **提示：** 最佳 batch 大小和 vram 有关。在我的 Geforce rtx4060 laptop + 16gb vram 上，256~512 的 batch 大小是比较合适的。超过这个值会导致部分数据被动态迁移至 cpu，极大降低嵌入效率。各位可以多试验几次，找到最佳 batch 大小。
+**提示：** 使用 --embedding-server 可以连接到已运行的嵌入服务器，避免每次批次重新加载模型的开销。需要先运行嵌入服务器：`.\scripts\start-embedding-server.ps1`
 
 ---
 

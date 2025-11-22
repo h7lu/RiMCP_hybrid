@@ -397,7 +397,7 @@ public static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("Usage:");
-        Console.WriteLine("  RimWorldCodeRag index --root <path> [--lucene <dir>] [--vec <dir>] [--graph <file>] [--meta <dir>] [--model <dir>] [--python-script <file>] [--python-exec <file>] [--python-batch <n>] [--threads <n>] [--no-incremental] [--force]");
+        Console.WriteLine("  RimWorldCodeRag index --root <path> [--lucene <dir>] [--vec <dir>] [--graph <file>] [--meta <dir>] [--model <dir>] [--python-script <file>] [--python-exec <file>] [--python-batch <n>] [--embedding-server <url>] [--threads <n>] [--no-incremental] [--force]");
         Console.WriteLine("  RimWorldCodeRag rough-search --query <text> [--lucene <dir>] [--vec <dir>] [--kind <type>] [--model <dir>] [--python-script <file>] [--python-exec <file>] [--max-results <n>] [--lexical-k <n>] [--semantic-k <n>]");
         Console.WriteLine("  RimWorldCodeRag get-uses --symbol <id> [--kind <type>] [--graph <path>]");
         Console.WriteLine("  RimWorldCodeRag get-used-by --symbol <id> [--kind <type>] [--graph <path>]");
@@ -416,5 +416,6 @@ public static class Program
         Console.WriteLine("  --max-lines <n>   Limit output to first N lines (0 = show all, default: 0)");
         Console.WriteLine("  --graph <path>    Path to graph files (default: 'index/graph')");
         Console.WriteLine("  --lucene <dir>    Path to Lucene index directory (default: 'index/lucene')");
+        Console.WriteLine("  --embedding-server <url>  URL of persistent embedding server (e.g., 'http://127.0.0.1:5000') to avoid subprocess cold starts");
     }
 }

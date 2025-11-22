@@ -460,6 +460,26 @@ coverage/
 **/pagination-input.txt
 scripts.zip
 
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ML models and embeddings (generated/downloaded)
+**/embeddings/
+**/*.safetensors
+**/*.bin
+**/*.onnx
+
+# Generated indexes and data files
+index/vec/
+index/graph.csc.bin
+index/graph.csr.bin
+index/graph.nodes.tsv
+index/meta/
+index/lucene/
+
 # RimWorld specific - EXCLUDE ALL COPYRIGHTED MATERIAL
 RimWorldData/
 **/models/

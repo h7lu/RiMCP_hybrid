@@ -1,0 +1,484 @@
+# Visual Studio and VS Code
+.vs/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Build outputs
+**/bin/
+**/obj/
+**/out/
+**/dist/
+**/build/
+
+# User-specific files
+**/*.user
+**/*.suo
+**/*.userosscache
+**/*.sln.docstates
+
+# Mono auto generated files
+mono_crash.*
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio 2015/2017 cache/options directory
+.vs/
+
+# Uncomment if you have tasks that create the project's static files in wwwroot
+#wwwroot/
+
+# Visual Studio 2017 auto generated files
+Generated\ Files/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+
+# Build Results of an ATL Project
+[Dd]ebugPS/
+[Rr]eleasePS/
+dlldata.c
+
+# Benchmark Results
+BenchmarkDotNet.Artifacts/
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# StyleCop
+StyleCopReport.xml
+
+# Files built by Visual Studio
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Chutzpah Test files
+_Chutzpah*
+
+# Visual C++ cache files
+ipch/
+*.aps
+*.ncb
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+
+# Visual Studio profiler
+*.psess
+*.vsp
+*.vspx
+*.sap
+
+# Visual Studio Trace Files
+*.e2e
+
+# TFS 2012 Local Workspace
+$tf/
+
+# Guidance Automation Toolkit
+*.gpState
+
+# ReSharper is a .NET coding add-in
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# TeamCity is a build add-in
+_TeamCity*
+
+# DotCover is a Code Coverage Tool
+*.dotCover
+
+# AxoCover is a Code Coverage Tool
+.axoCover/*
+!.axoCover/settings.json
+
+# Coverlet is a free, cross platform Code Coverage Tool
+coverage*.json
+coverage*.xml
+coverage*.info
+
+# Visual Studio code coverage results
+*.coverage
+*.coveragexml
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# MightyMoose
+*.mm.*
+AutoTest.Net/
+
+# Web workbench (sass)
+.sass-cache/
+
+# Installshield output folder
+[Ee]xpress/
+
+# DocProject is a documentation generator add-in
+DocProject/buildhelp/
+DocProject/Help/*.HxT
+DocProject/Help/*.HxC
+DocProject/Help/*.hhc
+DocProject/Help/*.hhk
+DocProject/Help/*.hhp
+DocProject/Help/Html2
+DocProject/Help/html
+
+# Click-Once directory
+publish/
+
+# Publish Web Output
+*.[Pp]ublish.xml
+*.azurePubxml
+# Note: Comment the next line if you want to checkin your web deploy settings,
+# but database connection strings (with potential passwords) will be unencrypted
+*.pubxml
+*.publishproj
+
+# Microsoft Azure Web App publish settings. Comment the next line if you want to
+# checkin your Azure Web App publish settings, but sensitive information contained
+# in these scripts will be unencrypted
+PublishScripts/
+
+# NuGet Packages
+*.nupkg
+**/packages/*
+!**/packages/build/
+**/*.nuget.props
+**/*.nuget.targets
+
+# NuGet Symbol Packages
+*.snupkg
+
+# Windows Installer build output
+*.cab
+*.msi
+*.msm
+*.msp
+
+# Windows Installer files from build output
+**/*.cab
+**/*.msi
+**/*.msm
+**/*.msp
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# CodeRush personal settings
+.cr/personal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Virtual environments
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+
+# Machine Learning / Data Science
+*.pkl
+*.pickle
+*.joblib
+*.model
+*.h5
+*.hdf5
+*.pb
+*.ckpt
+*.pth
+*.pt
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Dataset files (usually too large for git)
+*.csv
+*.jsonl
+*.parquet
+*.feather
+*.h5
+*.hdf5
+
+# FAISS index files
+*.index
+*.faiss
+*.bin
+
+# Vector embeddings
+**/vectors.jsonl
+**/vector-map.json
+**/embeddings/
+
+# Lucene index files
+**/lucene/
+**/*.cfe
+**/*.cfs
+**/*.si
+**/*.del
+**/segments*
+
+# Index metadata
+**/graph.meta.json
+**/mtimes.json
+
+# Log files
+*.log
+logs/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Configuration files with sensitive data or user-specific paths
+appsettings.*.json
+!appsettings.json
+config.local.json
+secrets.json
+
+# IDE and editor files
+*.sublime-project
+*.sublime-workspace
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# PowerShell
+*.ps1xml
+*.psc1
+*.psd1
+*.psm1
+*.pssc
+*.cdxml
+*.acl
+*.cat
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Documentation and tests (exclude from version control)
+docs/
+tests/
+**/runtimes/
+
+# Large data files
+*.dat
+*.data
+*.db
+*.sqlite
+*.sqlite3
+
+# Model files and binaries
+*.onnx
+*.tflite
+*.pb
+*.model
+
+# Cache and temporary directories
+cache/
+tmp/
+temp/
+
+# Test results and coverage
+test-results/
+coverage/
+.coverage
+.nyc_output
+
+# Build artifacts specific to this project
+**/pagination-input.txt
+scripts.zip
+
+# RimWorld specific - EXCLUDE ALL COPYRIGHTED MATERIAL
+RimWorldData/
+**/models/
+**/Source/.idea/
+**/Source/Folder.DotSettings.user
+
+# Third-party dependencies and copyrighted content
+**/DelaunatorSharp/
+**/Gilzoide/
+**/Ionic/
+**/KTrie/
+**/LudeonTK/
+**/NVorbis/
+**/RuntimeAudioClipLoader/
+**/UnitySourceGeneratedAssemblyMonoScriptTypes_v1.cs
+**/__JobReflectionRegistrationOutput*
+
+# Keep important configuration files
+!mcp-config.json
+!mcp.json
+!README.md
+!MCP_SETUP.md

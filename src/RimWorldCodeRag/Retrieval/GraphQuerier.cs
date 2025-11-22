@@ -1,0 +1,283 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using RimWorldCodeRag.Common;
+
+namespace RimWorldCodeRag.Retrieval;
+
+
+public sealed class GraphQuerier : IDisposable
+{
+    private readonly string _basePath;
+    private readonly Dictionary<int, string> _indexToSymbol;
+    private readonly Dictionary<string, int> _symbolToIndex;
+    
+    //行优先的压缩稀疏矩阵图
+    private readonly int[] _csrRowPointers;
+    private readonly int[] _csrColumnIndices;
+    private readonly byte[] _csrKinds;
+
+    //列优先的压缩稀疏矩阵图
+    private readonly int[] _cscColPointers;
+    private readonly int[] _cscRowIndices;
+    private readonly byte[] _cscKinds;
+    
+    private readonly int _nodeCount;
+    private readonly int _edgeCount;
+
+    public GraphQuerier(string basePath)
+    {
+        _basePath = basePath;
+        
+        (_indexToSymbol, _symbolToIndex) = LoadNodes(basePath + ".nodes.tsv");
+        _nodeCount = _indexToSymbol.Count;
+        
+        (_csrRowPointers, _csrColumnIndices, _csrKinds) = LoadBinary(basePath + ".csr.bin", "CSR1");
+        
+        (_cscColPointers, _cscRowIndices, _cscKinds) = LoadBinary(basePath + ".csc.bin", "CSC1");
+        
+        _edgeCount = _csrColumnIndices.Length;
+    }
+
+    //执行检索
+    public IReadOnlyList<GraphQueryResult> Query(GraphQueryConfig config)
+    {
+        if (!_symbolToIndex.TryGetValue(config.SymbolId, out var nodeIndex))
+        {
+            return Array.Empty<GraphQueryResult>();
+        }
+
+        var edges = config.Direction == GraphDirection.Uses
+            ? GetOutgoingEdges(nodeIndex)
+            : GetIncomingEdges(nodeIndex);
+
+        edges = edges.Where(e => IsEdgeValidForDirection(DecodeKind(e.Kind), config.Direction));
+        //类型筛选
+        if (!string.IsNullOrWhiteSpace(config.Kind))
+        {
+            edges = FilterByKind(edges, config.Kind, config.Direction);
+        }
+
+        return edges
+            .Select(e => new GraphQueryResult
+            {
+                //Uses返回TargetIndex
+                //UsedBy返回SourceIndex
+                SymbolId = config.Direction == GraphDirection.Uses 
+                    ? _indexToSymbol[e.TargetIndex]
+                    : _indexToSymbol[e.SourceIndex],
+                EdgeKind = DecodeKind(e.Kind),
+                Distance = 1
+            })
+            .ToList();
+    }
+
+    //出边。不是外向型人格
+    private IEnumerable<RawEdge> GetOutgoingEdges(int nodeIndex)
+    {
+        var start = _csrRowPointers[nodeIndex];
+        var end = _csrRowPointers[nodeIndex + 1];
+        
+        for (var i = start; i < end; i++)
+        {
+            yield return new RawEdge
+            {
+                SourceIndex = nodeIndex,
+                TargetIndex = _csrColumnIndices[i],
+                Kind = _csrKinds[i]
+            };
+        }
+    }
+
+    //入边。不是收入
+    private IEnumerable<RawEdge> GetIncomingEdges(int nodeIndex)
+    {
+        var start = _cscColPointers[nodeIndex];
+        var end = _cscColPointers[nodeIndex + 1];
+        
+        for (var i = start; i < end; i++)
+        {
+            yield return new RawEdge
+            {
+                SourceIndex = _cscRowIndices[i],
+                TargetIndex = nodeIndex,
+                Kind = _cscKinds[i]
+            };
+        }
+    }
+
+// c# 或 xml的筛选
+    private IEnumerable<RawEdge> FilterByKind(IEnumerable<RawEdge> edges, string kind, GraphDirection direction)
+    {
+        var kindLower = kind.ToLowerInvariant();
+        var wantCSharp = kindLower == "csharp" || kindLower == "cs";
+        var wantXml = kindLower == "xml" || kindLower == "def";
+
+        if (!wantCSharp && !wantXml)
+        {
+            return edges;
+        }
+
+        return edges.Where(e =>
+        {
+            var resultSymbol = direction == GraphDirection.Uses
+                ? _indexToSymbol[e.TargetIndex]
+                : _indexToSymbol[e.SourceIndex];
+            
+            var resultIsCSharp = IsCSharpNode(resultSymbol);
+            var resultIsXml = IsXmlNode(resultSymbol);
+            
+            if (wantCSharp)
+            {
+                return resultIsCSharp;
+            }
+            else 
+            {
+                return resultIsXml;
+            }
+        });
+    }
+
+    private static bool IsCSharpNode(string symbolId)
+        => !symbolId.StartsWith("xml:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsXmlNode(string symbolId)
+        => symbolId.StartsWith("xml:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCSharpEdge(EdgeKind kind) => kind switch
+    {
+        EdgeKind.Inherits => true,
+        EdgeKind.Calls => true,
+        EdgeKind.References => true,
+        EdgeKind.XmlBindsClass => true,
+        EdgeKind.XmlUsesComp => true,
+        _ => false
+    };
+
+    private static bool IsXmlEdge(EdgeKind kind) => kind switch
+    {
+        EdgeKind.XmlInherits => true,
+        EdgeKind.XmlReferences => true,
+        EdgeKind.CSharpUsedByDef => true,
+        _ => false
+    };
+
+    //多查一次：CSharpUsedByDef是反向边不能出现在Uses查询中。测试的时候发现这个问题，多做一步
+    private static bool IsEdgeValidForDirection(EdgeKind kind, GraphDirection direction)
+    {
+        if (direction == GraphDirection.Uses)
+        {
+            return kind != EdgeKind.CSharpUsedByDef;
+        }
+        return true;
+    }
+
+    private static EdgeKind DecodeKind(byte code) => code switch
+    {
+        1 => EdgeKind.Calls,
+        2 => EdgeKind.References,
+        3 => EdgeKind.Inherits,
+        4 => EdgeKind.XmlReferences,
+        10 => EdgeKind.XmlInherits,
+        20 => EdgeKind.XmlBindsClass,
+        21 => EdgeKind.XmlUsesComp,
+        30 => EdgeKind.CSharpUsedByDef,
+        _ => EdgeKind.References 
+    };
+
+    private static (Dictionary<int, string>, Dictionary<string, int>) LoadNodes(string path)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException($"Graph nodes file not found: {path}");
+        }
+
+        var indexToSymbol = new Dictionary<int, string>();
+        var symbolToIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var line in File.ReadLines(path, Encoding.UTF8))
+        {
+            var parts = line.Split('\t');
+            if (parts.Length != 2)
+            {
+                continue;
+            }
+
+            if (!int.TryParse(parts[0], out var index))
+            {
+                continue;
+            }
+
+            var symbol = parts[1];
+            indexToSymbol[index] = symbol;
+            symbolToIndex[symbol] = index;
+        }
+
+        return (indexToSymbol, symbolToIndex);
+    }
+
+    private static (int[] pointers, int[] indices, byte[] kinds) LoadBinary(string path, string expectedMagic)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException($"Graph binary file not found: {path}");
+        }
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1 << 20);
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
+
+        //读标题
+        var magic = Encoding.ASCII.GetString(reader.ReadBytes(4));
+        if (magic != expectedMagic)
+        {
+            throw new InvalidDataException($"Invalid magic header in {path}: expected {expectedMagic}, got {magic}");
+        }
+
+        var version = reader.ReadInt32();
+        if (version != 1)
+        {
+            throw new InvalidDataException($"Unsupported format version: {version}");
+        }
+
+        var nodeCount = reader.ReadInt32();
+        var edgeCount = reader.ReadInt32();
+
+        //读指针
+        var pointers = new int[nodeCount + 1];
+        for (var i = 0; i <= nodeCount; i++)
+        {
+            pointers[i] = reader.ReadInt32();
+        }
+
+        //读索引
+        var indices = new int[edgeCount];
+        for (var i = 0; i < edgeCount; i++)
+        {
+            indices[i] = reader.ReadInt32();
+        }
+
+        //读类
+        var kindsLength = reader.ReadInt32();
+        if (kindsLength != edgeCount)
+        {
+            throw new InvalidDataException($"Kinds array length mismatch: expected {edgeCount}, got {kindsLength}");
+        }
+        var kinds = reader.ReadBytes(edgeCount);
+
+        return (pointers, indices, kinds);
+    }
+
+    public void Dispose()
+    {
+        //好像没啥需要释放的，索性全删了
+    }
+
+    private readonly struct RawEdge
+    {
+        public int SourceIndex { get; init; }
+        public int TargetIndex { get; init; }
+        public byte Kind { get; init; }
+    }
+}

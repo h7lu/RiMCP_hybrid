@@ -364,6 +364,8 @@ public sealed class RoughSearcher : IDisposable
     private IQueryEmbeddingGenerator CreateQueryEmbeddingGenerator()
     {
         var serverConfigured = !string.IsNullOrWhiteSpace(_config.EmbeddingServerUrl);
+        //When apikey modelname exists, using api instead
+        var apiConfigured =serverConfigured&& !string.IsNullOrWhiteSpace(_config.ApiKey) && !string.IsNullOrWhiteSpace(_config.ModelName);
         var pythonConfigured = !string.IsNullOrWhiteSpace(_config.PythonExecutablePath)
             && !string.IsNullOrWhiteSpace(_config.PythonScriptPath)
             && !string.IsNullOrWhiteSpace(_config.ModelPath);

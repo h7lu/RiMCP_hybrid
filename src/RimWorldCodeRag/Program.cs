@@ -87,6 +87,7 @@ public static class Program
         var graph = GetOrDefault(options, "graph", Path.Combine("index", "graph.db"));
         var meta = GetOrDefault(options, "meta", Path.Combine("index", "meta"));
         var model = GetOrDefault(options, "model", Path.Combine("models", "e5-base-v2"));
+        var apiKey = GetOrDefault(options, "apikey", "");
         var pythonExec = GetOrDefault(options, "python-exec", "python");
         var pythonScriptCandidate = GetOrDefault(options, "python-script", Path.Combine("python", "embed.py"));
         var pythonBatch = int.TryParse(GetOrDefault(options, "python-batch", "1024"), out var parsedBatch) ? Math.Max(1, parsedBatch) : 1024;
@@ -110,6 +111,8 @@ public static class Program
             GraphPath = Path.GetFullPath(graph),
             MetadataPath = Path.GetFullPath(meta),
             ModelPath = Path.GetFullPath(model),
+            ModelName = model,
+            ApiKey = apiKey,
             EmbeddingServerUrl = string.IsNullOrWhiteSpace(embeddingServerUrl) ? null : embeddingServerUrl,
             PythonExecutablePath = resolvedPythonScript is null ? null : pythonExec,
             PythonScriptPath = resolvedPythonScript,
@@ -150,6 +153,7 @@ public static class Program
         var lucene = GetOrDefault(options, "lucene", Path.Combine("index", "lucene"));
         var vec = GetOrDefault(options, "vec", Path.Combine("index", "vec"));
         var model = GetOrDefault(options, "model", Path.Combine("models", "e5-base-v2"));
+        var apikey = GetOrDefault(options, "apikey", "");
         var pythonScriptCandidate = GetOrDefault(options, "python-script", Path.Combine("python", "embed.py"));
         var pythonExecCandidate = GetOrDefault(options, "python-exec", "python");
         var embeddingServerUrl = GetOrDefault(options, "embedding-server", "");
@@ -173,6 +177,8 @@ public static class Program
             MaxResults = maxResults,
             LexicalCandidates = lexicalCandidates,
             SemanticCandidates = semanticCandidates,
+            ApiKey = apikey,
+            ModelName = model,
             Kind = kind, // ← Pass kind parameter
             EmbeddingServerUrl = string.IsNullOrWhiteSpace(embeddingServerUrl) ? null : embeddingServerUrl,
             PythonScriptPath = pythonScript,

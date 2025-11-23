@@ -55,6 +55,10 @@ public sealed class IndexingConfig
     // Embedding server config
     public string? EmbeddingServerUrl { get; init; }
     
+    public string? ApiKey {  get; init; }
+
+    public string? ModelName {  get; init; }
+    
     // Subprocess fallback config
     public string? PythonExecutablePath { get; init; }
     public string? PythonScriptPath { get; init; }

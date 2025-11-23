@@ -16,6 +16,8 @@ public sealed class RoughSearchConfig
     public string? Kind { get; init; }
 
     public string? EmbeddingServerUrl { get; init; }
+    public string? ApiKey { get; init; }
+    public string? ModelName { get; init; }
 
     public string? PythonExecutablePath { get; init; }
     public string? PythonScriptPath { get; init; }

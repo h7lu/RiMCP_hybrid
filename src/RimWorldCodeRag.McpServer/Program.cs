@@ -72,7 +72,9 @@ var config = new McpServerConfig
     DataRoot = configuration["RIMWORLD_DATA_ROOT"]
                ?? configuration["McpServer:DataRoot"],
     EmbeddingServerUrl = configuration["EMBEDDING_SERVER_URL"]
-                         ?? configuration["McpServer:EmbeddingServerUrl"]
+                         ?? configuration["McpServer:EmbeddingServerUrl"],
+    ApiKey = configuration["APIKEY"] ?? configuration["McpServer:ApiKey"],
+    ModelName = configuration["EMBEDDING_MODELNAME"] ?? configuration["McpServer:ModelName"]
 };
 
 // 记录配置信息
@@ -101,7 +103,9 @@ try
     
     server.RegisterTool(new RoughSearchTool(
         config.IndexRoot,
-        config.EmbeddingServerUrl
+        config.EmbeddingServerUrl,
+        config.ApiKey,
+        config.ModelName
     ));
     
     server.RegisterTool(new GetUsesTool(

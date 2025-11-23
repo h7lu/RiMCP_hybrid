@@ -76,9 +76,18 @@ internal sealed class IndexingPipeline
         Console.ResetColor();
 
         IEmbeddingGenerator embeddingGenerator;
-        
+
         // Prefer embedding server if configured
-        if (!string.IsNullOrWhiteSpace(_config.EmbeddingServerUrl))
+
+        if (!string.IsNullOrWhiteSpace(_config.EmbeddingServerUrl)||!string.IsNullOrWhiteSpace(_config.ApiKey)||!string.IsNullOrWhiteSpace(_config.ModelName))
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[index] Using embedding server api at {_config.EmbeddingServerUrl}, model: {_config.ModelName}");
+            Console.ResetColor();
+            embeddingGenerator = new ApiEmbeddingGenerator(_config.EmbeddingServerUrl,_config.ApiKey, _config.ModelName);
+            
+        }
+        else if (!string.IsNullOrWhiteSpace(_config.EmbeddingServerUrl))
         {
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine($"[index] Using embedding server at {_config.EmbeddingServerUrl}");

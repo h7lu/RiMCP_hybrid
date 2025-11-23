@@ -22,7 +22,11 @@ public sealed class RoughSearchTool : ITool, IDisposable
     public string Description =>
         "Search for RimWorld code symbols and XML definitions using natural language queries. Returns a list of matching item names with metadata. Use get_item tool afterwards to retrieve full source code for any interesting results. If search doesn't return relevant results, try simplifying your query to focus on essential keywords only.";
 
-    public RoughSearchTool(string indexRoot, string? embeddingServerUrl = null)
+    public RoughSearchTool(
+        string indexRoot, 
+        string? embeddingServerUrl = null,
+        string? apiKey=null,
+        string? modelName=null)
     {
         _indexRoot = indexRoot;
         _embeddingServerUrl = embeddingServerUrl;
@@ -32,6 +36,8 @@ public sealed class RoughSearchTool : ITool, IDisposable
             LuceneIndexPath = Path.Combine(_indexRoot, "lucene"),
             VectorIndexPath = Path.Combine(_indexRoot, "vec"),
             EmbeddingServerUrl = _embeddingServerUrl,
+            ApiKey=apiKey,
+            ModelName=modelName,
             MaxResults = 20,
             UseSemanticScoringOnly = true
         };

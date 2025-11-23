@@ -14,6 +14,12 @@ public sealed class McpServerConfig
     // 嵌入服务器 URL
     public string? EmbeddingServerUrl { get; set; }
 
+    // 嵌入模型Api密钥
+    public string? ApiKey { get; set; }
+
+    //嵌入模型名
+    public string? ModelName { get; set; }
+
     // 最大并发请求数，默认 5
     public int MaxConcurrentRequests { get; set; } = 5;
 

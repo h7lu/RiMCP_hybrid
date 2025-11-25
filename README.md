@@ -2,7 +2,7 @@
 
 - 作者：五步蛇
 
-[English Version](README-en.md)
+[English](README-en.md)
 
 - 这个项目提供了一套面向 RimWorld 源代码与 XML 定义的检索与导航工具，核心目标是把词法检索、语义检索和图结构导航结合起来，构建一个能被 AI 助手调用的服务。项目既可以作为一个命令行工具使用，也可以以 MCP 服务器的形式被集成到像 Claude Desktop 或 VS Code Copilot 这样的助手中。当前源码包含索引构建、混合检索策略、跨层图关系以及完整源码定位与返回的功能实现。
 
@@ -44,7 +44,7 @@
 
 ---
 
-## 快速命令与说明（索引与强制重建）
+## 快速命令与说明
 
 构建或更新索引，生成倒排索引、向量嵌入和图关系数据。
 
@@ -60,6 +60,7 @@ dotnet run -- index --root "..\..\RimWorldData"
 ```bash
 cd src\RimWorldCodeRag
 dotnet run -- index --root "..\..\RimWorldData" --force
+# 若不带 --force 参数，则会检测已有数据库，进行增量更新，当源代码有明显变化时不建议使用。
 ```
 
 ### 嵌入生成批次大小示例（在显存受限的机器上调整）：
@@ -77,18 +78,21 @@ dotnet run -- index --root "..\..\RimWorldData" --embedding-server "http://127.0
 ```
 
 **注意：** --force 强制清空/刷新已有索引并从头构建，适用于修复字段存储或切分规则变更后的完全重建。常规更新可去掉 --force 以启动增量构建，更快且保留未变更的数据。
+
 **提示：** 最佳 batch 大小和 vram 有关。在我的 Geforce rtx4060 laptop + 16gb vram 上，256~512 的 batch 大小是比较合适的。超过这个值会导致部分数据被动态迁移至 cpu，极大降低嵌入效率。各位可以多试验几次，找到最佳 batch 大小。
+
 **提示：** 使用 --embedding-server 可以连接到已运行的嵌入服务器，避免每次批次重新加载模型的开销。需要先运行嵌入服务器：`.\scripts\start-embedding-server.ps1`
 
 ---
 
-## CLI 查询命令（示例与用法）
+## CLI 查询命令
 
-### 混合检索（快速召回 + 语义重排序）示例：
+### 混合检索示例：
 
 ```bash
 cd src\RimWorldCodeRag
-dotnet run -- rough-search --query "weapon gun" --kind def --max-results 10
+dotnet run -- rough-search --query "weapon gun" --kind def --lexical-k 2000 --max-results 10
+# 此处的lexical-k参数默认1000，代表第一阶段字面相似度粗筛得到的结果，语义相似度的检索会在这些当中选择。越大的k，越有可能得到预期的结果，相应的，耗时也会越长。
 ```
 
 ### 查找某个符号使用（返回该符号引用的其他符号，用 --kind 限制层）：
@@ -117,7 +121,7 @@ dotnet run -- get-item --symbol "xml:Door"
 
 ---
 
-## MCP 服务器完整设置指南（5 分钟快速开始）
+## MCP 服务器完整设置指南
 
 ### 前置要求
 
@@ -163,7 +167,7 @@ cd RiMCP_hybrid/
 dotnet build
 ```
 
-### 4. 构建索引（一次性设置）
+### 4. 构建索引（一次性，在实际服务前运行）
 
 ```bash
 # 从 RimWorld 数据创建搜索索引
@@ -174,7 +178,7 @@ dotnet run -- index --root "..\..\RimWorldData"
 ### 5. 启动服务
 
 ```bash
-# 终端 1：启动嵌入服务器（保持运行）
+# 终端 1：启动嵌入服务器（保持后台运行，默认127.0.0.1:5000端口）
 # Windows PowerShell:
 .\scripts\start-embedding-server.ps1
 

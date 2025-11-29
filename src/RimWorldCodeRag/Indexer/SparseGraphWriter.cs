@@ -13,7 +13,7 @@ public static class SparseGraphWriter
     private const string CscMagic = "CSC1";
     private const int FormatVersion = 1;
 
-    public static void Write(string basePath, IReadOnlyList<ChunkRecord> nodes, IReadOnlyCollection<GraphEdge> edges)
+    public static (Dictionary<string, int> NodeToIndex, Dictionary<int, string> IndexToNode) Write(string basePath, IReadOnlyList<ChunkRecord> nodes, IReadOnlyCollection<GraphEdge> edges)
     {
         if (nodes.Count == 0)
         {
@@ -21,15 +21,15 @@ public static class SparseGraphWriter
             DeleteIfExists(basePath + ".csc.bin");
             DeleteIfExists(basePath + ".nodes.tsv");
             DeleteIfExists(basePath + ".meta.json");
-            return;
+            return (new Dictionary<string, int>(), new Dictionary<int, string>());
         }
 
-        var nodeIndex = BuildNodeIndex(nodes);
+        var (nodeToIndex, indexToNode) = BuildNodeIndex(nodes);
         var nodeCount = nodes.Count;
 
         var rowCounts = new int[nodeCount];
         var colCounts = new int[nodeCount];
-        var validEdgeCount = CountEdges(edges, nodeIndex, rowCounts, colCounts);
+        var validEdgeCount = CountEdges(edges, nodeToIndex, rowCounts, colCounts);
 
         var csrRowPointers = BuildPointers(rowCounts);
         var cscColPointers = BuildPointers(colCounts);
@@ -39,23 +39,28 @@ public static class SparseGraphWriter
         var csrKinds = new byte[validEdgeCount];
         var cscKinds = new byte[validEdgeCount];
 
-        PopulateMatrices(edges, nodeIndex, csrRowPointers, cscColPointers, csrColumnIndices, cscRowIndices, csrKinds, cscKinds);
+        PopulateMatrices(edges, nodeToIndex, csrRowPointers, cscColPointers, csrColumnIndices, cscRowIndices, csrKinds, cscKinds);
 
         WriteBinary(basePath + ".csr.bin", CsrMagic, nodeCount, validEdgeCount, csrRowPointers, csrColumnIndices, csrKinds);
         WriteBinary(basePath + ".csc.bin", CscMagic, nodeCount, validEdgeCount, cscColPointers, cscRowIndices, cscKinds);
         WriteNodes(basePath + ".nodes.tsv", nodes);
         WriteMetadata(basePath + ".meta.json", nodeCount, validEdgeCount);
+
+        return (nodeToIndex, indexToNode);
     }
 
-    private static Dictionary<string, int> BuildNodeIndex(IReadOnlyList<ChunkRecord> nodes)
+    private static (Dictionary<string, int>, Dictionary<int, string>) BuildNodeIndex(IReadOnlyList<ChunkRecord> nodes)
     {
-        var map = new Dictionary<string, int>(nodes.Count, StringComparer.Ordinal);
+        var nodeToIndex = new Dictionary<string, int>(nodes.Count, StringComparer.Ordinal);
+        var indexToNode = new Dictionary<int, string>(nodes.Count);
         for (var i = 0; i < nodes.Count; i++)
         {
-            map[nodes[i].Id] = i;
+            var id = nodes[i].Id;
+            nodeToIndex[id] = i;
+            indexToNode[i] = id;
         }
 
-        return map;
+        return (nodeToIndex, indexToNode);
     }
 
     private static int CountEdges(

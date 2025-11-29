@@ -26,6 +26,7 @@ public sealed class RoughSearcher : IDisposable
     private readonly DirectoryReader _reader;
     private readonly IndexSearcher _searcher;
     private readonly StandardAnalyzer _analyzer;
+    private readonly QueryParser _symbolIdParser;
     private readonly QueryParser _textParser;
     private readonly VectorIndex _vectorIndex;
     private readonly IQueryEmbeddingGenerator _queryEmbeddingGenerator;
@@ -39,6 +40,12 @@ public sealed class RoughSearcher : IDisposable
         _reader = DirectoryReader.Open(_directory);
         _searcher = new IndexSearcher(_reader);
         _analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        
+        _symbolIdParser = new QueryParser(LuceneVersion.LUCENE_48, LuceneWriter.FieldSymbolId, _analyzer)
+        {
+            DefaultOperator = Operator.OR
+        };
+
         _textParser = new QueryParser(LuceneVersion.LUCENE_48, LuceneWriter.FieldText, _analyzer)
         {
             DefaultOperator = Operator.OR
@@ -89,10 +96,11 @@ public sealed class RoughSearcher : IDisposable
             }
             
             matches.Sort((a, b) => b.Score.CompareTo(a.Score));
-            semanticMatches = matches.Take(_config.SemanticCandidates).ToList();
+            var semanticTake = Math.Max(_config.MaxResults, _config.SemanticCandidates);
+            semanticMatches = matches.Take(semanticTake).ToList();
         }
 
-        Console.WriteLine($"[debug] Lexical pre-filter: {lexicalMatches.Count}, Semantic candidates requested: {_config.SemanticCandidates}, returned: {semanticMatches.Count}");
+        Console.WriteLine($"[debug] Lexical pre-filter: {lexicalMatches.Count}, Semantic candidates requested: {_config.MaxResults}, returned: {semanticMatches.Count}");
 
         return MergeResults(lexicalMatches, semanticMatches, _config.MaxResults);
     }
@@ -124,31 +132,32 @@ public sealed class RoughSearcher : IDisposable
 
     private IReadOnlyList<LexicalMatch> SearchLexical(string query, int take)
     {
-    var booleanQuery = new BooleanQuery();
+        var booleanQuery = new BooleanQuery();
+        var escapedQuery = QueryParserBase.Escape(query);
 
-        Query? textQuery = null;
         try
         {
-            textQuery = _textParser.Parse(QueryParserBase.Escape(query));
+            var symbolIdQuery = _symbolIdParser.Parse(escapedQuery);
+            symbolIdQuery.Boost = IdentifierBoost;
+            booleanQuery.Add(symbolIdQuery, Occur.SHOULD);
         }
         catch
         {
-            // Ignore parse failures; rely on identifier clauses instead.
+            // Ignore parse failures for the symbol ID field.
         }
 
-        if (textQuery != null)
+        try
         {
+            var textQuery = _textParser.Parse(escapedQuery);
             booleanQuery.Add(textQuery, Occur.SHOULD);
         }
-
-        foreach (var identifier in ExtractIdentifiers(query))
+        catch
         {
-            var term = new Term(LuceneWriter.FieldIdentifiersKw, identifier);
-            var termQuery = new TermQuery(term)
+            // If text query fails and we have no other clauses, we can't proceed.
+            if (booleanQuery.Clauses.Count == 0)
             {
-                Boost = IdentifierBoost
-            };
-            booleanQuery.Add(termQuery, Occur.SHOULD);
+                return Array.Empty<LexicalMatch>();
+            }
         }
 
         if (booleanQuery.Clauses.Count == 0)
@@ -157,27 +166,25 @@ public sealed class RoughSearcher : IDisposable
         }
 
         Query luceneQuery;
-            if (!string.IsNullOrWhiteSpace(_config.Kind))
+        if (!string.IsNullOrWhiteSpace(_config.Kind))
+        {
+            var filterQuery = new BooleanQuery();
+            filterQuery.Add(booleanQuery, Occur.MUST);
+
+            var kindLower = _config.Kind.ToLowerInvariant();
+            if (kindLower == "csharp" || kindLower == "cs")
             {
-                var filterQuery = new BooleanQuery();
-                filterQuery.Add(booleanQuery, Occur.MUST);
-
-                var kindLower = _config.Kind.ToLowerInvariant();
-                if (kindLower == "csharp" || kindLower == "cs")
-                {
-                    // Only search C# code
-                    var langTerm = new Term(LuceneWriter.FieldLang, "csharp");
-                    filterQuery.Add(new TermQuery(langTerm), Occur.MUST);
-                }
-                else if (kindLower == "def" || kindLower == "xml")
-                {
-                    // Treat 'def' and 'xml' as synonyms: only search XML Defs
-                    var langTerm = new Term(LuceneWriter.FieldLang, "xml");
-                    filterQuery.Add(new TermQuery(langTerm), Occur.MUST);
-                }
-
-                luceneQuery = filterQuery;
+                var langTerm = new Term(LuceneWriter.FieldLang, "csharp");
+                filterQuery.Add(new TermQuery(langTerm), Occur.MUST);
             }
+            else if (kindLower == "def" || kindLower == "xml")
+            {
+                var langTerm = new Term(LuceneWriter.FieldLang, "xml");
+                filterQuery.Add(new TermQuery(langTerm), Occur.MUST);
+            }
+
+            luceneQuery = filterQuery;
+        }
         else
         {
             luceneQuery = booleanQuery;
@@ -350,15 +357,6 @@ public sealed class RoughSearcher : IDisposable
         }
 
         return _searcher.Doc(hits.ScoreDocs[0].Doc);
-    }
-
-    private static IEnumerable<string> ExtractIdentifiers(string query)
-    {
-        return TextUtilities
-            .SplitIdentifier(query)
-            .Select(token => token.ToLowerInvariant())
-            .Where(token => token.Length > 1)
-            .Distinct();
     }
 
     private IQueryEmbeddingGenerator CreateQueryEmbeddingGenerator()

@@ -53,15 +53,14 @@ public sealed class IndexingConfig
     public string? ModelPath { get; init; }
     
     // Embedding server config
-    public string? EmbeddingServerUrl { get; init; }
+    public string? EmbeddingServerUrl { get; set; }
     
-    public string? ApiKey {  get; init; }
+    public string? ApiKey { get; set; }
+    public string? ModelName { get; set; }
 
-    public string? ModelName {  get; init; }
-    
     // Subprocess fallback config
-    public string? PythonExecutablePath { get; init; }
-    public string? PythonScriptPath { get; init; }
+    public string? PythonExecutablePath { get; set; }
+    public string? PythonScriptPath { get; set; }
     public int PythonBatchSize { get; init; } = 1024;
     public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
     public bool Incremental { get; init; } = true;

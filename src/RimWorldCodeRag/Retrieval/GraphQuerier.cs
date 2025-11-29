@@ -27,6 +27,9 @@ public sealed class GraphQuerier : IDisposable
     private readonly int _nodeCount;
     private readonly int _edgeCount;
 
+    private readonly Dictionary<string, double> _pageRankScores;
+    private readonly Dictionary<EdgeKind, double> _edgeWeights;
+
     public GraphQuerier(string basePath)
     {
         _basePath = basePath;
@@ -39,6 +42,20 @@ public sealed class GraphQuerier : IDisposable
         (_cscColPointers, _cscRowIndices, _cscKinds) = LoadBinary(basePath + ".csc.bin", "CSC1");
         
         _edgeCount = _csrColumnIndices.Length;
+
+        _pageRankScores = LoadPageRank(basePath + ".pagerank.tsv");
+        _edgeWeights = new Dictionary<EdgeKind, double>
+        {
+            { EdgeKind.Inherits, 1.0 },
+            { EdgeKind.XmlInherits, 0.9 },
+            { EdgeKind.Implements, 0.9 },
+            { EdgeKind.Calls, 0.8 },
+            { EdgeKind.XmlBindsClass, 0.7 },
+            { EdgeKind.XmlUsesComp, 0.6 },
+            { EdgeKind.References, 0.5 },
+            { EdgeKind.XmlReferences, 0.4 },
+            { EdgeKind.CSharpUsedByDef, 0.7 }
+        };
     }
 
     //执行检索
@@ -60,18 +77,29 @@ public sealed class GraphQuerier : IDisposable
             edges = FilterByKind(edges, config.Kind, config.Direction);
         }
 
-        return edges
-            .Select(e => new GraphQueryResult
+        var results = edges
+            .Select(e =>
             {
-                //Uses返回TargetIndex
-                //UsedBy返回SourceIndex
-                SymbolId = config.Direction == GraphDirection.Uses 
+                var symbolId = config.Direction == GraphDirection.Uses
                     ? _indexToSymbol[e.TargetIndex]
-                    : _indexToSymbol[e.SourceIndex],
-                EdgeKind = DecodeKind(e.Kind),
-                Distance = 1
+                    : _indexToSymbol[e.SourceIndex];
+                var edgeKind = DecodeKind(e.Kind);
+
+                var pageRank = _pageRankScores.TryGetValue(symbolId, out var pr) ? pr : 0.0;
+                var edgeWeight = _edgeWeights.TryGetValue(edgeKind, out var ew) ? ew : 0.1; // Default to low weight
+
+                return new GraphQueryResult
+                {
+                    SymbolId = symbolId,
+                    EdgeKind = edgeKind,
+                    Distance = 1,
+                    Score = pageRank * edgeWeight
+                };
             })
+            .OrderByDescending(r => r.Score)
             .ToList();
+
+        return results;
     }
 
     //出边。不是外向型人格
@@ -218,21 +246,40 @@ public sealed class GraphQuerier : IDisposable
         return (indexToSymbol, symbolToIndex);
     }
 
-    private static (int[] pointers, int[] indices, byte[] kinds) LoadBinary(string path, string expectedMagic)
+    private static Dictionary<string, double> LoadPageRank(string path)
     {
+        var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException($"Graph binary file not found: {path}");
+            return scores;
         }
 
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1 << 20);
+        using var reader = new StreamReader(path, Encoding.UTF8);
+        string? line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            var parts = line.Split('\t');
+            if (parts.Length != 2 || !double.TryParse(parts[1], out var score))
+            {
+                continue;
+            }
+
+            scores[parts[0]] = score;
+        }
+
+        return scores;
+    }
+
+    public static (int[], int[], byte[]) LoadBinary(string path, string expectedHeader)
+    {
+        using var stream = File.OpenRead(path);
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: false);
 
         //读标题
         var magic = Encoding.ASCII.GetString(reader.ReadBytes(4));
-        if (magic != expectedMagic)
+        if (magic != expectedHeader)
         {
-            throw new InvalidDataException($"Invalid magic header in {path}: expected {expectedMagic}, got {magic}");
+            throw new InvalidDataException($"Invalid magic header in {path}: expected {expectedHeader}, got {magic}");
         }
 
         var version = reader.ReadInt32();

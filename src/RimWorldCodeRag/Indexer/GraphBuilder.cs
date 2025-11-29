@@ -97,11 +97,48 @@ internal sealed class GraphBuilder
         Console.WriteLine($"[graph] Total edges: {edges.Length}");
         Console.ResetColor();
         Console.WriteLine("[graph] Writing sparse adjacency matrices ...");
-        SparseGraphWriter.Write(_graphBasePath, chunks, edges);
+        var (nodeToIndex, indexToNode) = SparseGraphWriter.Write(_graphBasePath, chunks, edges);
+
+        Console.WriteLine("[graph] Calculating PageRank for graph nodes ...");
+        CalculateAndSavePageRank(_graphBasePath, nodeToIndex.Count, indexToNode);
 
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine("[graph] Knowledge graph build complete");
         Console.ResetColor();
+    }
+
+    private void CalculateAndSavePageRank(string basePath, int nodeCount, IReadOnlyDictionary<int, string> indexToNode)
+    {
+        var csrPath = basePath + ".csr.bin";
+        var cscPath = basePath + ".csc.bin";
+
+        if (!File.Exists(csrPath) || !File.Exists(cscPath))
+        {
+            Console.Error.WriteLine("[graph] CSR or CSC files not found, skipping PageRank calculation.");
+            return;
+        }
+
+        var (csrRowPointers, csrColumnIndices, _) = RimWorldCodeRag.Retrieval.GraphQuerier.LoadBinary(csrPath, "CSR1");
+        var (cscColPointers, cscRowIndices, _) = RimWorldCodeRag.Retrieval.GraphQuerier.LoadBinary(cscPath, "CSC1");
+
+        var scores = PageRankCalculator.Calculate(
+            nodeCount,
+            csrRowPointers,
+            csrColumnIndices,
+            cscColPointers,
+            cscRowIndices
+        );
+
+        var outputPath = basePath + ".pagerank.tsv";
+        using var writer = new StreamWriter(outputPath);
+        foreach (var kvp in scores.OrderByDescending(kvp => kvp.Value))
+        {
+            if (indexToNode.TryGetValue(kvp.Key, out var symbolName))
+            {
+                writer.WriteLine($"{symbolName}\t{kvp.Value:F6}");
+            }
+        }
+        Console.WriteLine($"[graph] PageRank scores saved to {outputPath}");
     }
 
     internal static string NormalizeBasePath(string path)

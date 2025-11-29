@@ -60,6 +60,7 @@ internal sealed class LuceneWriter : IDisposable
                 new StringField(FieldClass, chunk.ContainingType ?? string.Empty, Field.Store.YES),
                 new StringField(FieldSymbolKind, chunk.SymbolKind.ToString().ToLowerInvariant(), Field.Store.YES),
                 new StringField(FieldSymbolId, chunk.Id, Field.Store.YES),
+                new TextField(FieldSymbolId, chunk.Id, Field.Store.NO),
                 new TextField(FieldText, chunk.Text, Field.Store.NO),
                 new StoredField(FieldPreview, chunk.Preview),
                 new Int32Field(FieldSpanStart, chunk.SpanStart, Field.Store.YES),

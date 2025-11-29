@@ -12,11 +12,14 @@ public enum EdgeKind
     //继承
     Inherits = 1,
     
+    //实现接口
+    Implements = 2,
+
     //方法调用
-    Calls = 2,
+    Calls = 3,
     
     //类型引用
-    References = 3,
+    References = 4,
     
     //Def父子继承
     XmlInherits = 10,
@@ -69,4 +72,6 @@ public sealed record GraphQueryResult
     public required EdgeKind EdgeKind { get; init; }
    
     public int Distance { get; init; } = 1;
+
+    public double Score { get; set; }
 }

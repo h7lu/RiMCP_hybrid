@@ -87,7 +87,8 @@ public static class Program
         var graph = GetOrDefault(options, "graph", Path.Combine("index", "graph.db"));
         var meta = GetOrDefault(options, "meta", Path.Combine("index", "meta"));
         var model = GetOrDefault(options, "model", Path.Combine("models", "e5-base-v2"));
-        var apiKey = GetOrDefault(options, "apikey", "");
+        var apiKey = GetOrDefault(options, "api-key", "");
+        var modelName = GetOrDefault(options, "model-name", "");
         var pythonExec = GetOrDefault(options, "python-exec", "python");
         var pythonScriptCandidate = GetOrDefault(options, "python-script", Path.Combine("python", "embed.py"));
         var pythonBatch = int.TryParse(GetOrDefault(options, "python-batch", "1024"), out var parsedBatch) ? Math.Max(1, parsedBatch) : 1024;
@@ -111,8 +112,8 @@ public static class Program
             GraphPath = Path.GetFullPath(graph),
             MetadataPath = Path.GetFullPath(meta),
             ModelPath = Path.GetFullPath(model),
-            ModelName = model,
             ApiKey = apiKey,
+            ModelName = modelName,
             EmbeddingServerUrl = string.IsNullOrWhiteSpace(embeddingServerUrl) ? null : embeddingServerUrl,
             PythonExecutablePath = resolvedPythonScript is null ? null : pythonExec,
             PythonScriptPath = resolvedPythonScript,
@@ -403,7 +404,7 @@ public static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("Usage:");
-        Console.WriteLine("  RimWorldCodeRag index --root <path> [--lucene <dir>] [--vec <dir>] [--graph <file>] [--meta <dir>] [--model <dir>] [--python-script <file>] [--python-exec <file>] [--python-batch <n>] [--embedding-server <url>] [--threads <n>] [--no-incremental] [--force]");
+        Console.WriteLine("  RimWorldCodeRag index --root <path> [--lucene <dir>] [--vec <dir>] [--graph <file>] [--meta <dir>] [--model <dir>] [--python-script <file>] [--python-exec <file>] [--python-batch <n>] [--embedding-server <url>] [--api-key <key>] [--model-name <name>] [--threads <n>] [--no-incremental] [--force]");
         Console.WriteLine("  RimWorldCodeRag rough-search --query <text> [--lucene <dir>] [--vec <dir>] [--kind <type>] [--model <dir>] [--python-script <file>] [--python-exec <file>] [--max-results <n>] [--lexical-k <n>] [--semantic-k <n>]");
         Console.WriteLine("  RimWorldCodeRag get-uses --symbol <id> [--kind <type>] [--graph <path>]");
         Console.WriteLine("  RimWorldCodeRag get-used-by --symbol <id> [--kind <type>] [--graph <path>]");
@@ -423,5 +424,7 @@ public static class Program
         Console.WriteLine("  --graph <path>    Path to graph files (default: 'index/graph')");
         Console.WriteLine("  --lucene <dir>    Path to Lucene index directory (default: 'index/lucene')");
         Console.WriteLine("  --embedding-server <url>  URL of persistent embedding server (e.g., 'http://127.0.0.1:5000') to avoid subprocess cold starts");
+        Console.WriteLine("  --api-key <key>   API key for remote embedding service");
+        Console.WriteLine("  --model-name <name> Model name for remote embedding service");
     }
 }

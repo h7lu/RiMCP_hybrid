@@ -480,6 +480,7 @@ ENV/
 **/index/lucene/
 **/index/graph.meta.json
 **/index/graph.nodes.tsv
+**/index/graph.pagerank.tsv
 
 # RimWorld specific - EXCLUDE ALL COPYRIGHTED MATERIAL
 RimWorldData/

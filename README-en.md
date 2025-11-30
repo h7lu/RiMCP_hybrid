@@ -37,7 +37,7 @@
 - In addition, in some experiments, I intensively tested the get_uses and get_used_by tools, found that although these two tools recall stably and completely, but for many classes, because our relationship extraction is too detailed, Rimworld's source code is complex enough, when extracting upstream and downstream relationships, it may return ultra-large amounts of data. This situation is not limited to one or two core defined classes, such as ThingComp and Pawn, but will appear on many code elements that implement specific functions. This brings a lot of noise to the large model's judgment. Therefore, I plan to design a set of weighing algorithms, attach priority weights to the edges of the graph, and sort the results of querying dependency relationships in reverse order, so that important links can be ranked to the front with higher probability, indirectly reducing the noise in the information obtained by the large language model. The weight of the edge may be related to the type of edge, the importance index of the node (for the importance index of the node, I plan to use the pure classic Google PageRank algorithm, and I assume that the computational overhead should not be huge), and even there may be weighting factors calculated from the literal similarity of the two names. However, I have some concerns that this set of weight algorithms, because it is artificially intuitively designed, may not reflect the theoretical importance, and may even have negative optimization on retrieval efficiency. But if seeking non-artificial design optimal weighting methods, it is even impossible to define the problem, let alone from an algorithmic perspective. I don't want to decide weighting by patting my head, so it seems that a lot of experiments in the future are unavoidable. 😩🤌 Mama Mia.
 
 - There are also some small todos, such as some very enthusiastic friends suggested, hoping to be able to call remote embedding model api services, instead of only local models, there are suggestions to start the 5000 port embedding server with one key during initialization, and there are friends who hope to use SSE transmission instead of Stdio to avoid some drawbacks of the Stdio method, and also convenient for LAN transmission. These are all very good suggestions, the relevant changes have been put on the agenda, please be patient.
-- **Update**: The remote embedding API feature has been implemented! You can now connect to external embedding services like OpenAI using the `--api-key` and `--model-name` parameters. Thanks for the suggestions!
+- **Update**: The remote embedding API feature has been implemented! You can now connect to external embedding services like OpenAI using the `--api-key` and `--model-name` parameters. A big thank you to user asvc_33 for their contribution!
 
 - I sincerely thank the RimWorld modder circle for their enthusiastic support, I love you all. This project follows the MIT license, which means I hope my code can be freely used by all creatures within the solar system. In the process of communication and discussion, I also gained a lot. Therefore, thank you for your support.
 
@@ -54,18 +54,11 @@ cd src\RimWorldCodeRag
 dotnet run -- index --root "..\..\RimWorldData"
 ```
 
-### With Forced Rebuild (ignore incremental judgment, rebuild all indexes):
-
-```bash
-cd src\RimWorldCodeRag
-dotnet run -- index --root "..\..\RimWorldData" --force
-```
-
 ### Embedding Generation Batch Size Example (adjust on machines with limited memory):
 
 ```bash
 cd src\RimWorldCodeRag
-dotnet run -- index --root "..\..\RimWorldData" --python-batch 128
+dotnet run -- index --root "..\..\RimWorldData" --python-batch 128 --embedding-server "http://127.0.0.1:5000"
 ```
 
 ### Using Persistent Embedding Server (avoid cold start for each batch):
@@ -80,6 +73,28 @@ dotnet run -- index --root "..\..\RimWorldData" --embedding-server "http://127.0
 ```bash
 cd src\RimWorldCodeRag
 dotnet run -- index --root "..\..\RimWorldData" --embedding-server "https://api.openai.com/v1/embeddings" --api-key "sk-..." --model-name "text-embedding-3-small"
+```
+
+### With Forced Rebuild (ignore incremental judgment, rebuild all indexes):
+
+The `--force` argument now supports more granular control, allowing you to specify which parts of the index to rebuild, saving time.
+
+```bash
+# Force a rebuild of all indexes (equivalent to the old --force), assuming local embedding server
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force all --embedding-server "http://127.0.0.1:5000" --python-batch 512
+
+# Force a rebuild of only the Lucene lexical index
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force lucene
+
+# Force a rebuild of only the vector embedding index
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force embed --embedding-server "http://127.0.0.1:5000" --python-batch 512
+
+# Force a rebuild of only the graph relationship index
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force graph
 ```
 
 **Note:** --force forces emptying/refreshing existing indexes and rebuilding from scratch, suitable for complete rebuild after fixing field storage or splitting rule changes. Regular updates can remove --force to start incremental build, faster and retain unchanged data.

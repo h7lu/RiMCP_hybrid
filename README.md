@@ -39,7 +39,7 @@
 - 另外一些实验中我高强度测试了 get_uses 和 get_used_by 工具，发现这两个工具虽然召回稳定而完整，但是对于很多的类来说，由于我们的关系提取太过细致，Rimworld 的源码又足够复杂，提取上下游关系时有可能返回超大量数据。这个情况并不局限于一两个核心定义的类，如 ThingComp 和 Pawn 之类，而是在很多实现具体功能的代码元素上都会出现。这为大模型的判断带来了不少的噪声。因此，我计划设计一套权重算法，为图的边附上优先级权重，查询依赖关系的结果按照倒序排序，就能更高概率将重要的链接排到前面，变相降低大模型获得的信息中的噪声。边的权重也许会和边的种类，节点的重要性指数（节点的重要性指数上我计划使用经典的谷歌 Pagerank 算法，应该算力开销不会无比巨大），甚至可能有加权因子是由两者名字的字面相似程度计算而来。然而，我有一些担心这套权重算法由于是人工直观设计，并不能反映理论上的重要性，甚至会对检索效率产生负面优化。但是若寻求非人工设计的最优解加权方式，却甚至无法定义问题所在，从算法角度更是无可下手。我不想拍脑袋决定加权，这样看来，未来大量的实验应该是避免不了的。😩🤌 Mama Mia.
 
 - 还有一些小代办，比如一些十分热情的朋友反映的，希望可以调用远程嵌入模型 api 服务，而不是仅限于本地模型，有建议初始化时一键启动 5000 端口嵌入服务器的，还有朋友希望能够用 SSE 传输代替 Stdio ，来避免 Stdio 方式的一些弊端，也方便局域网传输。这些都是非常好的建议，相关的改动已经提上日程，请大家耐心等待（在做了，在做了.jpg）。
-- **更新**：远程嵌入 API 的功能已经实现了。现在你可以通过 `--api-key` 和 `--model-name` 参数来连接到像 OpenAI 这样的外部嵌入服务了。感谢asvc_33大佬的贡献！
+- **更新**：远程嵌入 API 的功能已经实现了。现在你可以通过 `--api-key` 和 `--model-name` 参数来连接到像 OpenAI 这样的外部嵌入服务了。感谢 asvc_33 大佬的贡献！
 
 - 我真心特别感谢边缘世界 modder 圈子各位的热情支持，我爱你们。这个项目遵循 MIT 协议，意思就是我希望我的代码可以任意为太阳系内的所有生物自由使用。在交流和探讨过程中，我也收获了很多。因此，谢谢大家的支持。
 
@@ -56,19 +56,11 @@ cd src\RimWorldCodeRag
 dotnet run -- index --root "..\..\RimWorldData"
 ```
 
-### 带强制重建（忽略增量判断，重新构建全部索引）：
-
-```bash
-cd src\RimWorldCodeRag
-dotnet run -- index --root "..\..\RimWorldData" --force
-# 若不带 --force 参数，则会检测已有数据库，进行增量更新，当源代码有明显变化时不建议使用。
-```
-
 ### 嵌入生成批次大小示例（在显存受限的机器上调整）：
 
 ```bash
 cd src\RimWorldCodeRag
-dotnet run -- index --root "..\..\RimWorldData" --python-batch 128
+dotnet run -- index --root "..\..\RimWorldData" --python-batch 128 --embedding-server "http://127.0.0.1:5000"
 ```
 
 ### 使用持久嵌入服务器（避免每次批次冷启动）：
@@ -82,7 +74,29 @@ dotnet run -- index --root "..\..\RimWorldData" --embedding-server "http://127.0
 
 ```bash
 cd src\RimWorldCodeRag
-dotnet run -- index --root "..\..\RimWorldData" --embedding-server "https://api.openai.com/v1/embeddings" --api-key "sk-..." --model-name "text-embedding-3-small"
+dotnet run -- index --root "..\..\RimWorldData" --embedding-server "https://api.openai.com/v1/embeddings" --api-key "sk-1234567890abcdefghijklmnopqrstuvwxyz" --model-name "text-embedding-3-small"
+```
+
+### 带强制重建（忽略增量判断，重新构建全部索引）：
+
+`--force` 参数现在支持更精细的控制，可以指定重建索引的特定部分，从而节省时间。
+
+```bash
+# 强制重建所有索引（等同于旧的 --force）这里假设embedding-server使用本地嵌入服务
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force all --embedding-server "http://127.0.0.1:5000" --python-batch 512
+
+# 仅强制重建 Lucene 词法索引
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force lucene
+
+# 仅强制重建向量嵌入索引
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force embed --embedding-server "http://127.0.0.1:5000" --python-batch 512
+
+# 仅强制重建图关系索引
+cd src\RimWorldCodeRag
+dotnet run -- index --root "..\..\RimWorldData" --force graph
 ```
 
 **注意：** --force 强制清空/刷新已有索引并从头构建，适用于修复字段存储或切分规则变更后的完全重建。常规更新可去掉 --force 以启动增量构建，更快且保留未变更的数据。

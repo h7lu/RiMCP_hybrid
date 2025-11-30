@@ -50,16 +50,16 @@ public static class Program
             }
 
             var key = token[2..];
-            if (key is "no-incremental" or "force")
+            if (key is "no-incremental")
             {
                 result[key] = "true";
                 continue;
             }
 
-            if (i + 1 >= args.Length)
+            if (i + 1 >= args.Length || args[i + 1].StartsWith("--"))
             {
-                Console.Error.WriteLine($"Option '{token}' requires a value.");
-                break;
+                result[key] = "all"; // --force without value means --force all
+                continue;
             }
 
             result[key] = args[++i];
@@ -102,7 +102,7 @@ public static class Program
 
         var threads = int.TryParse(GetOrDefault(options, "threads", Environment.ProcessorCount.ToString()), out var parsedThreads) ? parsedThreads : Environment.ProcessorCount;
         var incremental = !options.ContainsKey("no-incremental");
-        var force = options.ContainsKey("force");
+        var forceValue = GetOrDefault(options, "force", "").ToLowerInvariant();
 
         var config = new IndexingConfig
         {
@@ -120,7 +120,9 @@ public static class Program
             PythonBatchSize = pythonBatch,
             MaxDegreeOfParallelism = Math.Max(1, threads),
             Incremental = incremental,
-            ForceFullRebuild = force
+            ForceRebuildLucene = forceValue.Contains("all") || forceValue.Contains("lucene"),
+            ForceRebuildEmbeddings = forceValue.Contains("all") || forceValue.Contains("embed"),
+            ForceRebuildGraph = forceValue.Contains("all") || forceValue.Contains("graph")
         };
 
         Console.WriteLine("[index] Configuration:");
@@ -134,7 +136,13 @@ public static class Program
         }
         if (config.ForceFullRebuild)
         {
-            Console.WriteLine("  force:   enabled");
+            Console.WriteLine("  force:   full rebuild enabled");
+        }
+        else
+        {
+            if (config.ForceRebuildLucene) Console.WriteLine("  force:   lucene rebuild enabled");
+            if (config.ForceRebuildEmbeddings) Console.WriteLine("  force:   embedding rebuild enabled");
+            if (config.ForceRebuildGraph) Console.WriteLine("  force:   graph rebuild enabled");
         }
 
         var pipeline = new IndexingPipeline(config);
@@ -234,29 +242,32 @@ public static class Program
 
         var kind = options.TryGetValue("kind", out var kindValue) ? kindValue : null;
         var graphPath = GetOrDefault(options, "graph", Path.Combine("index", "graph"));
+        var page = int.TryParse(GetOrDefault(options, "page", "1"), out var p) ? p : 1;
 
         var config = new GraphQueryConfig
         {
             SymbolId = symbol,
             Direction = GraphDirection.Uses,
-            Kind = kind
+            Kind = kind,
+            Page = page
         };
 
         try
         {
             using var querier = new GraphQuerier(graphPath);
-            var results = querier.Query(config);
+            var pagedResult = querier.Query(config);
+            var totalPages = (int)Math.Ceiling((double)pagedResult.TotalCount / pagedResult.PageSize);
 
-            if (results.Count == 0)
+            if (pagedResult.Results.Count == 0)
             {
                 Console.WriteLine($"[get-uses] {symbol} uses 0 symbols (kind={kind ?? "all"})");
                 return 0;
             }
 
-            Console.WriteLine($"[get-uses] {symbol} uses {results.Count} symbol(s) (kind={kind ?? "all"}):");
-            foreach (var result in results)
+            Console.WriteLine($"[get-uses] {symbol} uses {pagedResult.TotalCount} symbol(s) (kind={kind ?? "all"}) - Page {pagedResult.Page}/{totalPages}");
+            foreach (var result in pagedResult.Results)
             {
-                Console.WriteLine($"  [{result.EdgeKind}] {result.SymbolId}");
+                Console.WriteLine($"  [{result.EdgeKind}] Score={result.Score:F4} (PR={result.PageRank:F4} Dups={result.DuplicateCount}) Symbol={result.SymbolId}");
             }
 
             return 0;
@@ -286,29 +297,32 @@ public static class Program
 
         var kind = options.TryGetValue("kind", out var kindValue) ? kindValue : null;
         var graphPath = GetOrDefault(options, "graph", Path.Combine("index", "graph"));
+        var page = int.TryParse(GetOrDefault(options, "page", "1"), out var p) ? p : 1;
 
         var config = new GraphQueryConfig
         {
             SymbolId = symbol,
             Direction = GraphDirection.UsedBy,
-            Kind = kind
+            Kind = kind,
+            Page = page
         };
 
         try
         {
             using var querier = new GraphQuerier(graphPath);
-            var results = querier.Query(config);
+            var pagedResult = querier.Query(config);
+            var totalPages = (int)Math.Ceiling((double)pagedResult.TotalCount / pagedResult.PageSize);
 
-            if (results.Count == 0)
+            if (pagedResult.Results.Count == 0)
             {
                 Console.WriteLine($"[get-used-by] {symbol} is used by 0 symbols (kind={kind ?? "all"})");
                 return 0;
             }
 
-            Console.WriteLine($"[get-used-by] {symbol} is used by {results.Count} symbol(s) (kind={kind ?? "all"}):");
-            foreach (var result in results)
+            Console.WriteLine($"[get-used-by] {symbol} is used by {pagedResult.TotalCount} symbol(s) (kind={kind ?? "all"}) - Page {pagedResult.Page}/{totalPages}");
+            foreach (var result in pagedResult.Results)
             {
-                Console.WriteLine($"  [{result.EdgeKind}] {result.SymbolId}");
+                Console.WriteLine($"  [{result.EdgeKind}] Score={result.Score:F4} (PR={result.PageRank:F4} Dups={result.DuplicateCount}) Symbol={result.SymbolId}");
             }
 
             return 0;

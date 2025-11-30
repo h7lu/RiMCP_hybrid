@@ -61,7 +61,8 @@ public sealed class XmlGraphExtractor
             "driverClass",
             "hediffClass",
             "class",
-            "aiController"
+            "aiController",
+            "roomContentsWorkerType"
         };
         
         foreach (var fieldName in classFieldCandidates)

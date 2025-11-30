@@ -57,6 +57,8 @@ public sealed class GraphQueryConfig
     //参数：过滤的节点类型。如果是空，则不过滤
     public string? Kind { get; init; }
     
+    public int Page { get; init; } = 1;
+
     //最大深度（固定为1. 本来想做多跳，后来细想了一下，多跳返回的结果太大，没意义地填充上下文，不如让大模型多次单跳，减少信息的噪声）
     public int MaxDepth { get; init; } = 1;
 }
@@ -74,4 +76,14 @@ public sealed record GraphQueryResult
     public int Distance { get; init; } = 1;
 
     public double Score { get; set; }
+    public double PageRank { get; set; }
+    public int DuplicateCount { get; set; }
+}
+
+public sealed class PagedGraphQueryResult
+{
+    public required IReadOnlyList<GraphQueryResult> Results { get; init; }
+    public required int TotalCount { get; init; }
+    public int Page { get; init; }
+    public int PageSize { get; init; }
 }

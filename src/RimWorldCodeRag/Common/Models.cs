@@ -43,30 +43,6 @@ public sealed class ChunkRecord
     public string? DefType { get; init; }
 }
 
-public sealed class IndexingConfig
-{
-    public required string SourceRoot { get; init; }
-    public required string LuceneIndexPath { get; init; }
-    public required string VectorIndexPath { get; init; }
-    public required string GraphPath { get; init; }
-    public required string MetadataPath { get; init; }
-    public string? ModelPath { get; init; }
-    
-    // Embedding server config
-    public string? EmbeddingServerUrl { get; set; }
-    
-    public string? ApiKey { get; set; }
-    public string? ModelName { get; set; }
-
-    // Subprocess fallback config
-    public string? PythonExecutablePath { get; set; }
-    public string? PythonScriptPath { get; set; }
-    public int PythonBatchSize { get; init; } = 1024;
-    public int MaxDegreeOfParallelism { get; init; } = Environment.ProcessorCount;
-    public bool Incremental { get; init; } = true;
-    public bool ForceFullRebuild { get; init; }
-}
-
 public sealed class GraphEdge
 {
     public required string SourceId { get; init; }

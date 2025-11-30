@@ -3,13 +3,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using F23.StringSimilarity;
 using RimWorldCodeRag.Common;
 
 namespace RimWorldCodeRag.Retrieval;
 
-
 public sealed class GraphQuerier : IDisposable
 {
+    private const int PageSize = 30;
+    private const double PageRankScaleFactor = 1e7;
+    private readonly JaroWinkler _jaroWinkler = new JaroWinkler();
+
     private readonly string _basePath;
     private readonly Dictionary<int, string> _indexToSymbol;
     private readonly Dictionary<string, int> _symbolToIndex;
@@ -46,8 +50,8 @@ public sealed class GraphQuerier : IDisposable
         _pageRankScores = LoadPageRank(basePath + ".pagerank.tsv");
         _edgeWeights = new Dictionary<EdgeKind, double>
         {
-            { EdgeKind.Inherits, 1.0 },
-            { EdgeKind.XmlInherits, 0.9 },
+            { EdgeKind.Inherits, 2.0 },
+            { EdgeKind.XmlInherits, 1.8 },
             { EdgeKind.Implements, 0.9 },
             { EdgeKind.Calls, 0.8 },
             { EdgeKind.XmlBindsClass, 0.7 },
@@ -59,11 +63,17 @@ public sealed class GraphQuerier : IDisposable
     }
 
     //执行检索
-    public IReadOnlyList<GraphQueryResult> Query(GraphQueryConfig config)
+    public PagedGraphQueryResult Query(GraphQueryConfig config)
     {
         if (!_symbolToIndex.TryGetValue(config.SymbolId, out var nodeIndex))
         {
-            return Array.Empty<GraphQueryResult>();
+            return new PagedGraphQueryResult
+            {
+                Results = Array.Empty<GraphQueryResult>(),
+                TotalCount = 0,
+                Page = config.Page,
+                PageSize = PageSize
+            };
         }
 
         var edges = config.Direction == GraphDirection.Uses
@@ -77,29 +87,54 @@ public sealed class GraphQuerier : IDisposable
             edges = FilterByKind(edges, config.Kind, config.Direction);
         }
 
-        var results = edges
-            .Select(e =>
+        var allResults = edges
+            .GroupBy(e => new { 
+                SymbolId = config.Direction == GraphDirection.Uses ? _indexToSymbol[e.TargetIndex] : _indexToSymbol[e.SourceIndex], 
+                EdgeKind = DecodeKind(e.Kind) 
+            })
+            .Select(g =>
             {
-                var symbolId = config.Direction == GraphDirection.Uses
-                    ? _indexToSymbol[e.TargetIndex]
-                    : _indexToSymbol[e.SourceIndex];
-                var edgeKind = DecodeKind(e.Kind);
+                var symbolId = g.Key.SymbolId;
+                var edgeKind = g.Key.EdgeKind;
+                var duplicateCount = g.Count();
 
-                var pageRank = _pageRankScores.TryGetValue(symbolId, out var pr) ? pr : 0.0;
+                var rawPageRank = _pageRankScores.TryGetValue(symbolId, out var pr) ? pr : 0.0;
+                var scaledPageRank = rawPageRank * PageRankScaleFactor;
+
                 var edgeWeight = _edgeWeights.TryGetValue(edgeKind, out var ew) ? ew : 0.1; // Default to low weight
+                
+                // Lexical bonus as a tie-breaker
+                var lexicalBonus = _jaroWinkler.Similarity(config.SymbolId, symbolId);
+
+                var initialScore = scaledPageRank * edgeWeight;
+                var finalScore = (initialScore * Math.Sqrt(duplicateCount)) * lexicalBonus;
 
                 return new GraphQueryResult
                 {
                     SymbolId = symbolId,
                     EdgeKind = edgeKind,
                     Distance = 1,
-                    Score = pageRank * edgeWeight
+                    Score = finalScore,
+                    PageRank = scaledPageRank,
+                    DuplicateCount = duplicateCount
                 };
             })
             .OrderByDescending(r => r.Score)
+            .ThenBy(r => r.SymbolId, StringComparer.Ordinal) // Stable sort
             .ToList();
 
-        return results;
+        var pagedResults = allResults
+            .Skip((config.Page - 1) * PageSize)
+            .Take(PageSize)
+            .ToList();
+        
+        return new PagedGraphQueryResult
+        {
+            Results = pagedResults,
+            TotalCount = allResults.Count,
+            Page = config.Page,
+            PageSize = PageSize
+        };
     }
 
     //出边。不是外向型人格

@@ -273,9 +273,52 @@ internal sealed class GraphBuilder
     {
         var tree = CSharpSyntaxTree.ParseText(chunk.Text);
         var root = tree.GetRoot();
+        var chunkSpan = new Microsoft.CodeAnalysis.Text.TextSpan(chunk.SpanStart, chunk.SpanEnd - chunk.SpanStart);
+
+        // Inheritance edge
+        var classNode = root.DescendantNodes().OfType<ClassDeclarationSyntax>().FirstOrDefault();
+        if (classNode?.BaseList != null)
+        {
+            foreach (var baseType in classNode.BaseList.Types)
+            {
+                foreach (var resolved in ResolveTargets(baseType.Type.ToString(), symbolLookup, resolutionCache))
+                {
+                    yield return new GraphEdge
+                    {
+                        SourceId = chunk.Id,
+                        TargetId = resolved,
+                        Kind = EdgeKind.Inherits
+                    };
+                }
+            }
+        }
+
+        // Only look for nodes within this specific class, not the entire file
+        var nodesToSearch = classNode?.DescendantNodes() ?? Enumerable.Empty<SyntaxNode>();
+
+        foreach (var memberAccess in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+        {
+            if (!chunkSpan.Contains(memberAccess.Span)) continue;
+
+            // If the parent is an invocation, it's already handled by the Invocation loop.
+            if (memberAccess.Parent is InvocationExpressionSyntax) continue;
+
+            var targetName = memberAccess.ToString();
+            foreach (var resolved in ResolveTargets(targetName, symbolLookup, resolutionCache))
+            {
+                yield return new GraphEdge
+                {
+                    SourceId = chunk.Id,
+                    TargetId = resolved,
+                    Kind = EdgeKind.References
+                };
+            }
+        }
 
         foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
+            if (!chunkSpan.Contains(invocation.Span)) continue;
+
             var targetName = ExtractInvocationTarget(invocation.Expression);
             if (targetName == null)
             {
@@ -295,21 +338,10 @@ internal sealed class GraphBuilder
 
         foreach (var objectCreation in root.DescendantNodes().OfType<ObjectCreationExpressionSyntax>())
         {
+            if (!chunkSpan.Contains(objectCreation.Span)) continue;
+
             var targetName = objectCreation.Type.ToString();
             foreach (var resolved in ResolveTargets(targetName, symbolLookup, resolutionCache))
-            {
-                yield return new GraphEdge
-                {
-                    SourceId = chunk.Id,
-                    TargetId = resolved,
-                    Kind = EdgeKind.References
-                };
-            }
-        }
-
-        foreach (var identifier in root.DescendantNodes().OfType<IdentifierNameSyntax>())
-        {
-            foreach (var resolved in ResolveTargets(identifier.Identifier.Text, symbolLookup, resolutionCache))
             {
                 yield return new GraphEdge
                 {
@@ -334,13 +366,13 @@ internal sealed class GraphBuilder
             {
                 yield return item;
             }
-
             yield break;
         }
 
         var results = new List<string>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
+        // 1. Exact match (highest confidence)
         if (symbolLookup.TryGetValue(targetName, out var directHits))
         {
             foreach (var hit in directHits)
@@ -352,34 +384,28 @@ internal sealed class GraphBuilder
             }
         }
 
-        foreach (var candidate in symbolLookup)
+        // 2. If it's a qualified name (e.g., "GenAdjFast.AdjacentCellsCardinal"),
+        //    try to find symbols that end with it. This helps with cases where
+        //    the full namespace isn't available.
+        if (results.Count == 0 && targetName.Contains('.'))
         {
-            if (candidate.Key.EndsWith(targetName, StringComparison.Ordinal))
+            foreach (var candidate in symbolLookup)
             {
-                foreach (var value in candidate.Value)
+                if (candidate.Key.EndsWith("." + targetName, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (seen.Add(value))
+                    foreach (var value in candidate.Value)
                     {
-                        results.Add(value);
+                        if (seen.Add(value))
+                        {
+                            results.Add(value);
+                        }
                     }
                 }
-            }
-            else if (candidate.Value.Any(v => v.EndsWith(targetName, StringComparison.Ordinal)))
-            {
-                foreach (var value in candidate.Value)
-                {
-                    if (seen.Add(value))
-                    {
-                        results.Add(value);
-                    }
-                }
-            }
-
-            if (results.Count >= 16)
-            {
-                break;
             }
         }
+
+        // If it's a simple name (like "Contains") and we didn't get a direct hit,
+        // we stop. We no longer guess with a broad "EndsWith" search.
 
         var array = results.ToArray();
         resolutionCache[targetName] = array;
@@ -392,13 +418,7 @@ internal sealed class GraphBuilder
 
     private static string? ExtractInvocationTarget(ExpressionSyntax expression)
     {
-        return expression switch
-        {
-            IdentifierNameSyntax identifier => identifier.Identifier.Text,
-            MemberAccessExpressionSyntax member => member.Name.Identifier.Text,
-            MemberBindingExpressionSyntax binding => binding.Name.Identifier.Text,
-            GenericNameSyntax generic => generic.Identifier.Text,
-            _ => expression.ToString()
-        };
+        // Always return the full expression string to preserve context like "FilthMaker.TryMakeFilth"
+        return expression.ToString();
     }
 }

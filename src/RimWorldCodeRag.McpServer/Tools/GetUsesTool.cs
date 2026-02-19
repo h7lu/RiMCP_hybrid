@@ -19,7 +19,13 @@ public sealed class GetUsesTool : ITool, IDisposable
     public string Name => "get_uses";
 
     public string Description =>
-        "Find what a symbol depends on - shows calling relationships and implementation logic. Excellent for understanding how features work by tracing what other code/symbols are used. Use get_item tool afterwards to examine the full source code of any interesting dependencies found.";
+        "Find what a symbol depends on - shows calling relationships and implementation logic. " +
+        "Excellent for understanding how features work by tracing what other code/symbols are used. " +
+        "Accepts symbol ID (e.g., 'Verse.Pawn') or node ID from search results (e.g., '#42998'). " +
+        "IMPORTANT: Use the 'kind' parameter to filter results - set kind='xml' when looking for XML Def dependencies, " +
+        "set kind='csharp' when looking for C# code dependencies. This reduces noise significantly. " +
+        "Use 'page' parameter to navigate through large result sets. " +
+        "Use get_item tool afterwards to examine the full source code of any interesting dependencies found.";
 
     public GetUsesTool(string indexRoot)
     {
@@ -45,15 +51,15 @@ public sealed class GetUsesTool : ITool, IDisposable
                 symbol = new
                 {
                     type = "string",
-                    description = "Symbol ID to analyze. Examples: 'RimWorld.Pawn', 'Verse.Thing.Tick', 'RimWorld.JobDriver_Mine', 'xml:Steel'",
-                    pattern = "^([A-Za-z0-9_\\.]+|xml:[A-Za-z0-9_]+)$"
+                    description = "Symbol ID or node ID to analyze. Examples: 'Verse.Pawn', 'Verse.Thing.Tick', 'xml:Steel', or '#42998' (node ID from search results)",
+                    pattern = "^(#[0-9]+|[A-Za-z0-9_\\.]+|xml:[A-Za-z0-9_]+.*)$"
                 },
                 kind = new
                 {
                     type = "string",
                     @enum = new[] { "csharp", "xml", "all" },
                     @default = "all",
-                    description = "Filter by target type: 'csharp' for C# symbols only, 'xml' for XML definitions only, 'all' for everything"
+                    description = "RECOMMENDED: Filter target type. Use 'csharp' to see only C# dependencies, 'xml' to see only XML Def dependencies. Use 'all' only when you need both."
                 },
                 depth = new
                 {
@@ -131,37 +137,39 @@ public sealed class GetUsesTool : ITool, IDisposable
             throw new ArgumentException("page 必须 >= 1");
         }
 
+        // Resolve symbol reference (handles #nodeId format)
+        var resolvedSymbol = _querier.Value.ResolveSymbolReference(symbol);
+        if (resolvedSymbol == null)
+        {
+            throw new ArgumentException($"无法解析符号引用: '{symbol}'。提示：使用 rough_search 工具查找可用的符号。");
+        }
+
         var config = new Common.GraphQueryConfig
         {
-            SymbolId = symbol,
+            SymbolId = resolvedSymbol,
             Direction = Common.GraphDirection.Uses,
             Kind = kind == "all" ? null : kind,
-            MaxDepth = depth
+            MaxDepth = depth,
+            Page = page,
+            PageSize = maxResults
         };
 
-        var edges = await Task.Run(() => _querier.Value.Query(config));
+        var queryResult = await Task.Run(() => _querier.Value.Query(config));
 
-        var sortedEdges = edges
-            .OrderBy(e => e.Distance)
-            .ThenBy(e => e.EdgeKind)
-            .ThenBy(e => e.SymbolId, StringComparer.Ordinal)
-            .ToList();
-
-        var totalCount = sortedEdges.Count;
+        var totalCount = queryResult.TotalCount;
         var totalPages = (int)Math.Ceiling(totalCount / (double)maxResults);
      
+        var pagedEdges = queryResult.Results;
         var skip = (page - 1) * maxResults;
-        var pagedEdges = sortedEdges
-            .Skip(skip)
-            .Take(maxResults)
-            .ToList();
 
         var response = new
         {
-            sourceSymbol = symbol,
+            sourceSymbol = resolvedSymbol,
+            sourceNodeId = _querier.Value.GetNodeId(resolvedSymbol),
             edges = pagedEdges.Select(e => new
             {
                 targetSymbol = e.SymbolId,
+                targetNodeId = _querier.Value.GetNodeId(e.SymbolId),
                 edgeKind = e.EdgeKind.ToString(),
                 edgeLabel = GetEdgeLabel(e.EdgeKind),
                 distance = e.Distance

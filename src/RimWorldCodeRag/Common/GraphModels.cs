@@ -58,6 +58,7 @@ public sealed class GraphQueryConfig
     public string? Kind { get; init; }
     
     public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 30;
 
     //最大深度（固定为1. 本来想做多跳，后来细想了一下，多跳返回的结果太大，没意义地填充上下文，不如让大模型多次单跳，减少信息的噪声）
     public int MaxDepth { get; init; } = 1;

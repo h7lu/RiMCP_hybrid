@@ -348,11 +348,12 @@ public static class Program
             if (!options.TryGetValue("symbol", out var symbolId) || string.IsNullOrWhiteSpace(symbolId))
             {
                 Console.Error.WriteLine("Error: --symbol is required.");
-                Console.Error.WriteLine("Usage: get-item --symbol <id> [--max-lines <n>] [--lucene <path>]");
+                Console.Error.WriteLine("Usage: get-item --symbol <id> [--max-lines <n>] [--lucene <path>] [--graph <path>]");
                 return 1;
             }
 
             var luceneDir = GetOrDefault(options, "lucene", Path.Combine("index", "lucene"));
+            var graphPath = GetOrDefault(options, "graph", Path.Combine("index", "graph"));
             var maxLines = 0;
             if (options.TryGetValue("max-lines", out var maxLinesStr) && int.TryParse(maxLinesStr, out var parsed))
             {
@@ -366,12 +367,31 @@ public static class Program
                 return 1;
             }
 
+            // Resolve #nodeId format if needed
+            var resolvedSymbolId = symbolId;
+            if (symbolId.StartsWith('#') && int.TryParse(symbolId.AsSpan(1), out var nodeId))
+            {
+                if (!File.Exists(graphPath + ".nodes.tsv"))
+                {
+                    Console.Error.WriteLine($"Error: Graph index not found at '{graphPath}'");
+                    Console.Error.WriteLine("Hint: Run 'index' command first to build the graph.");
+                    return 1;
+                }
+                using var graphQuerier = new GraphQuerier(graphPath);
+                resolvedSymbolId = graphQuerier.GetSymbolId(nodeId);
+                if (resolvedSymbolId == null)
+                {
+                    Console.Error.WriteLine($"Error: Node ID not found: {nodeId}");
+                    return 1;
+                }
+            }
+
             using var retriever = new ExactRetriever(luceneDir);
-            var result = retriever.GetItem(symbolId, maxLines);
+            var result = retriever.GetItem(resolvedSymbolId, maxLines);
 
             if (result == null)
             {
-                Console.Error.WriteLine($"Error: Symbol not found: '{symbolId}'");
+                Console.Error.WriteLine($"Error: Symbol not found: '{resolvedSymbolId}' (input: '{symbolId}')");
                 Console.Error.WriteLine("Hint: Use 'rough-search' to find available symbols.");
                 return 1;
             }

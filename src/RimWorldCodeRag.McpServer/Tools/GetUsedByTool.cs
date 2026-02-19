@@ -18,7 +18,13 @@ public sealed class GetUsedByTool : ITool, IDisposable
     public string Name => "get_used_by";
 
     public string Description =>
-        "Find what uses a symbol - shows reverse dependencies and calling relationships. Excellent for understanding impact and usage patterns by tracing who calls or references the symbol. Use get_item tool afterwards to examine the full source code of any interesting callers found.";
+        "Find what uses a symbol - shows reverse dependencies and calling relationships. " +
+        "Excellent for understanding impact and usage patterns by tracing who calls or references the symbol. " +
+        "Accepts symbol ID (e.g., 'Verse.Pawn') or node ID from search results (e.g., '#42998'). " +
+        "IMPORTANT: Use the 'kind' parameter to filter results - set kind='xml' to find which XML Defs use this symbol, " +
+        "set kind='csharp' to find which C# code uses this symbol. This reduces noise significantly. " +
+        "Use 'page' parameter to navigate through large result sets. " +
+        "Use get_item tool afterwards to examine the full source code of any interesting callers found.";
 
     public GetUsedByTool(string indexRoot)
     {
@@ -43,15 +49,15 @@ public sealed class GetUsedByTool : ITool, IDisposable
                 symbol = new
                 {
                     type = "string",
-                    description = "Symbol ID to analyze. Examples: 'RimWorld.Pawn', 'Verse.Thing.Tick', 'RimWorld.JobDriver_Mine', 'xml:Steel'",
-                    pattern = "^([A-Za-z0-9_\\.]+|xml:[A-Za-z0-9_]+)$"
+                    description = "Symbol ID or node ID to analyze. Examples: 'Verse.Pawn', 'Verse.Thing.Tick', 'xml:Steel', or '#42998' (node ID from search results)",
+                    pattern = "^(#[0-9]+|[A-Za-z0-9_\\.]+|xml:[A-Za-z0-9_]+.*)$"
                 },
                 kind = new
                 {
                     type = "string",
                     @enum = new[] { "csharp", "xml", "all" },
                     @default = "all",
-                    description = "Filter by source type: 'csharp' for C# symbols only, 'xml' for XML definitions only, 'all' for everything"
+                    description = "RECOMMENDED: Filter source type. Use 'csharp' to see only C# code that uses this symbol, 'xml' to see only XML Defs that use this symbol. Use 'all' only when you need both."
                 },
                 depth = new
                 {
@@ -129,41 +135,42 @@ public sealed class GetUsedByTool : ITool, IDisposable
             throw new ArgumentException("page 必须大于等于 1");
         }
 
+        // Resolve symbol reference (handles #nodeId format)
+        var resolvedSymbol = _querier.Value.ResolveSymbolReference(symbol);
+        if (resolvedSymbol == null)
+        {
+            throw new ArgumentException($"无法解析符号引用: '{symbol}'。提示：使用 rough_search 工具查找可用的符号。");
+        }
+
         //初始化一下图检索
         var config = new Common.GraphQueryConfig
         {
-            SymbolId = symbol,
+            SymbolId = resolvedSymbol,
             Direction = Common.GraphDirection.UsedBy,
             Kind = kind == "all" ? null : kind,
-            MaxDepth = depth
+            MaxDepth = depth,
+            Page = page,
+            PageSize = maxResults
         };
 
-        var edges = await Task.Run(() => _querier.Value.Query(config));
+        var queryResult = await Task.Run(() => _querier.Value.Query(config));
 
-       //这种排序可以保证每次同样查询返回的结果都是一致的，不然分页没法做
-        var sortedEdges = edges
-            .OrderBy(e => e.Distance)
-            .ThenBy(e => e.EdgeKind)
-            .ThenBy(e => e.SymbolId, StringComparer.Ordinal)
-            .ToList();
-
-        var totalCount = sortedEdges.Count;
+        var totalCount = queryResult.TotalCount;
         var totalPages = (int)Math.Ceiling(totalCount / (double)maxResults);
         
         // 分页计算
+        var pagedEdges = queryResult.Results;
         var skip = (page - 1) * maxResults;
-        var pagedEdges = sortedEdges
-            .Skip(skip)
-            .Take(maxResults)
-            .ToList();
 
         // 转换为MCP响应格式
         var response = new
         {
-            targetSymbol = symbol,
+            targetSymbol = resolvedSymbol,
+            targetNodeId = _querier.Value.GetNodeId(resolvedSymbol),
             edges = pagedEdges.Select(e => new
             {
                 sourceSymbol = e.SymbolId,
+                sourceNodeId = _querier.Value.GetNodeId(e.SymbolId),
                 edgeKind = e.EdgeKind.ToString(),
                 edgeLabel = GetEdgeLabel(e.EdgeKind),
                 distance = e.Distance

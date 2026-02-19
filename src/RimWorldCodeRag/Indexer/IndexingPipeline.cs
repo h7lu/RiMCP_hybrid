@@ -111,7 +111,11 @@ internal sealed class IndexingPipeline
             }
         }
 
-        var graphBuilder = new GraphBuilder(_config.GraphPath, _config.MaxDegreeOfParallelism);
+        var graphBuilder = new GraphBuilder(
+            _config.GraphPath, 
+            _config.MaxDegreeOfParallelism,
+            _config.UseSemanticAnalysis,
+            _config.ReferenceDllPaths);
         graphBuilder.BuildGraph(fullChunks);
 
         _metadataStore.Save();

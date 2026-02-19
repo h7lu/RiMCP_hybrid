@@ -52,7 +52,7 @@ internal sealed class AdaptiveEmbeddingGenerator : IQueryEmbeddingGenerator, IDi
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[embedding] Server unavailable, falling back to subprocess: {ex.Message}");
+                Console.Error.WriteLine($"[embedding] Server unavailable, falling back to subprocess: {ex.Message}");
                 _serverAvailable = false;
             }
         }

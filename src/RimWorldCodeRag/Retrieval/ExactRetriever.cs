@@ -4,18 +4,23 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Index;
+using Lucene.Net.QueryParsers.Classic;
 using Lucene.Net.Search;
 using Lucene.Net.Store;
+using Lucene.Net.Util;
 using RimWorldCodeRag.Common;
 using RimWorldCodeRag.Indexer;
 
 //get_item工具通过标题返回整段代码
 public sealed class ExactRetriever : IDisposable
 {
+    private const LuceneVersion LuceneVersion = Lucene.Net.Util.LuceneVersion.LUCENE_48;
     private readonly FSDirectory _directory;
     private readonly DirectoryReader _reader;
     private readonly IndexSearcher _searcher;
+    private readonly StandardAnalyzer _analyzer;
 
     public ExactRetriever(string luceneIndexPath)
     {
@@ -27,12 +32,28 @@ public sealed class ExactRetriever : IDisposable
         _directory = FSDirectory.Open(luceneIndexPath);
         _reader = DirectoryReader.Open(_directory);
         _searcher = new IndexSearcher(_reader);
+        _analyzer = new StandardAnalyzer(LuceneVersion);
     }
 
     public ExactRetrievalResult? GetItem(string symbolId, int maxLines = 0)
     {
+        // First try exact match
         var query = new TermQuery(new Term(LuceneWriter.FieldSymbolId, symbolId));
         var hits = _searcher.Search(query, 1);
+
+        // If no exact match and symbolId starts with "xml:", try prefix match
+        // This handles cases like "xml:StorytellerDef:Cassandra" -> "xml:StorytellerDef:Cassandra <- BaseStoryteller"
+        if (hits.TotalHits == 0 && symbolId.StartsWith("xml:", StringComparison.OrdinalIgnoreCase))
+        {
+            var prefixQuery = new PrefixQuery(new Term(LuceneWriter.FieldSymbolId, symbolId));
+            hits = _searcher.Search(prefixQuery, 1);
+        }
+
+        // If still no match, try fuzzy structural search on symbol_id field
+        if (hits.TotalHits == 0)
+        {
+            hits = FuzzySymbolSearch(symbolId);
+        }
 
         if (hits.TotalHits == 0)
         {
@@ -40,6 +61,7 @@ public sealed class ExactRetriever : IDisposable
         }
 
         var doc = _searcher.Doc(hits.ScoreDocs[0].Doc);
+        var actualSymbolId = doc.Get(LuceneWriter.FieldSymbolId) ?? symbolId;
         var filePath = doc.Get(LuceneWriter.FieldPath);
         var spanStartField = doc.GetField(LuceneWriter.FieldSpanStart);
         var spanEndField = doc.GetField(LuceneWriter.FieldSpanEnd);
@@ -114,7 +136,7 @@ public sealed class ExactRetriever : IDisposable
 
         return new ExactRetrievalResult
         {
-            SymbolId = symbolId,
+            SymbolId = actualSymbolId,
             Path = filePath,
             Language = language,
             SymbolKind = symbolKind,
@@ -128,6 +150,168 @@ public sealed class ExactRetriever : IDisposable
             TotalLines = lines.Length,
             DisplayedLines = displayCode.Split('\n').Length
         };
+    }
+
+    /// <summary>
+    /// Fuzzy search using structural matching.
+    /// Prioritizes: 1) Type/Class matches over methods, 2) Symbol ID containing query parts
+    /// When query looks like Namespace.Type, tries to find the Type even if namespace is wrong.
+    /// </summary>
+    private TopDocs FuzzySymbolSearch(string symbolId)
+    {
+        try
+        {
+            // Split the query into structural parts
+            var queryParts = symbolId.Split(new[] { ':', '.', ' ', '<', '-', '_', '>' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(p => p.Length >= 2)
+                .Select(p => p.ToLowerInvariant())
+                .ToList();
+
+            if (queryParts.Count == 0)
+            {
+                return new TopDocs(0, Array.Empty<ScoreDoc>(), 0);
+            }
+
+            var boolQuery = new BooleanQuery();
+            
+            // Determine if this looks like an XML query
+            var isXmlQuery = symbolId.StartsWith("xml", StringComparison.OrdinalIgnoreCase) 
+                          || queryParts.Any(p => p == "xml" || p == "def");
+            
+            // For XML queries, filter to xml language
+            if (isXmlQuery)
+            {
+                boolQuery.Add(new TermQuery(new Term(LuceneWriter.FieldLang, "xml")), Occur.MUST);
+                // Remove "xml" from parts since it's handled by lang filter
+                queryParts = queryParts.Where(p => p != "xml").ToList();
+            }
+            
+            // Check if this looks like a Namespace.Type pattern (2+ parts with dots)
+            var looksLikeNamespaceType = !isXmlQuery && queryParts.Count >= 2 && symbolId.Contains('.');
+            
+            // The last part is the most important (the Type name) - MUST match
+            var typeName = queryParts.Last();
+            
+            if (looksLikeNamespaceType)
+            {
+                // Search for exact type name match in symbol_id
+                // This catches "Verse.Pawn" when user queries "RimWorld.Pawn"
+                var typeQuery = new WildcardQuery(new Term(LuceneWriter.FieldSymbolId, $"*.{typeName}"));
+                boolQuery.Add(typeQuery, Occur.MUST);
+                
+                // Also try to match in identifiers_kw
+                var idKwQuery = new TermQuery(new Term(LuceneWriter.FieldIdentifiersKw, typeName));
+                boolQuery.Add(idKwQuery, Occur.SHOULD);
+            }
+            else
+            {
+                // For single-word queries like "Pawn", try both exact type match and substring
+                var typeMatchQuery = new BooleanQuery();
+                
+                // Prefer symbol_id ending with ".typename" (exact type name)
+                var exactTypeQuery = new WildcardQuery(new Term(LuceneWriter.FieldSymbolId, $"*.{typeName}"));
+                typeMatchQuery.Add(exactTypeQuery, Occur.SHOULD);
+                
+                // Also allow general substring match
+                var substringQuery = new WildcardQuery(new Term(LuceneWriter.FieldSymbolId, $"*{typeName}*"));
+                typeMatchQuery.Add(substringQuery, Occur.SHOULD);
+                
+                boolQuery.Add(typeMatchQuery, Occur.MUST);
+                
+                // Other parts are optional but boost score
+                foreach (var part in queryParts.SkipLast(1))
+                {
+                    var partQuery = new WildcardQuery(new Term(LuceneWriter.FieldSymbolId, $"*{part}*"));
+                    boolQuery.Add(partQuery, Occur.SHOULD);
+                }
+            }
+
+            if (boolQuery.Clauses.Count == 0)
+            {
+                return new TopDocs(0, Array.Empty<ScoreDoc>(), 0);
+            }
+
+            // Get multiple candidates and score them
+            var hits = _searcher.Search(boolQuery, 100);
+            if (hits.TotalHits == 0)
+            {
+                return hits;
+            }
+
+            // Re-rank candidates: prioritize Type over Method, and symbol ID that ends with the query type
+            var candidates = new List<(ScoreDoc scoreDoc, double rank, string symbolId)>();
+            var queryTypeName = queryParts.LastOrDefault()?.ToLowerInvariant() ?? "";
+            
+            foreach (var scoreDoc in hits.ScoreDocs)
+            {
+                var doc = _searcher.Doc(scoreDoc.Doc);
+                var docSymbolId = doc.Get(LuceneWriter.FieldSymbolId) ?? "";
+                var docSymbolKind = doc.Get(LuceneWriter.FieldSymbolKind) ?? "";
+                
+                double rank = 0;
+                var docSymbolLower = docSymbolId.ToLowerInvariant();
+                
+                // VERY high bonus for Type/Class
+                if (docSymbolKind.Equals("Type", StringComparison.OrdinalIgnoreCase))
+                {
+                    rank += 1000.0;
+                    
+                    // Extra bonus if symbol_id ends with the query type name
+                    // e.g., "Verse.Pawn" ends with "pawn"
+                    if (docSymbolLower.EndsWith($".{queryTypeName}") || docSymbolLower == queryTypeName)
+                    {
+                        rank += 500.0;
+                    }
+                    else if (docSymbolLower.EndsWith(queryTypeName))
+                    {
+                        rank += 200.0;
+                    }
+                }
+                else if (docSymbolKind.Equals("Property", StringComparison.OrdinalIgnoreCase))
+                {
+                    rank += 50.0;
+                }
+                else if (docSymbolKind.Equals("Field", StringComparison.OrdinalIgnoreCase))
+                {
+                    rank += 40.0;
+                }
+                else if (docSymbolKind.Equals("Method", StringComparison.OrdinalIgnoreCase))
+                {
+                    rank += 10.0;
+                }
+                
+                // Bonus for all query parts appearing in the symbol
+                var matchedParts = queryParts.Count(p => docSymbolLower.Contains(p));
+                rank += matchedParts * 20.0;
+                
+                // Penalty for long symbol IDs (methods with parameters are longer)
+                rank -= docSymbolId.Length * 0.2;
+                
+                // Penalty if symbol contains parentheses (method signature)
+                if (docSymbolId.Contains('('))
+                {
+                    rank -= 200.0;
+                }
+                
+                candidates.Add((scoreDoc, rank, docSymbolId));
+            }
+            
+            // Sort by rank descending
+            candidates.Sort((a, b) => b.rank.CompareTo(a.rank));
+            
+            // Return the best candidate
+            if (candidates.Count > 0)
+            {
+                var bestCandidate = candidates.First();
+                return new TopDocs(1, new[] { bestCandidate.scoreDoc }, (float)bestCandidate.rank);
+            }
+            
+            return new TopDocs(0, Array.Empty<ScoreDoc>(), 0);
+        }
+        catch
+        {
+            return new TopDocs(0, Array.Empty<ScoreDoc>(), 0);
+        }
     }
 
     //多个集中提取，这个暂时没用上，先做个实现，看看效果再说
@@ -176,6 +360,7 @@ public sealed class ExactRetriever : IDisposable
 
     public void Dispose()
     {
+        _analyzer?.Dispose();
         _reader?.Dispose();
         _directory?.Dispose();
     }

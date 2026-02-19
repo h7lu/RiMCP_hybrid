@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace RimWorldCodeRag.Indexer;
 
 public sealed class IndexingConfig
@@ -23,4 +25,18 @@ public sealed class IndexingConfig
     public bool ForceRebuildGraph { get; set; }
 
     public bool ForceFullRebuild => ForceRebuildLucene && ForceRebuildEmbeddings && ForceRebuildGraph;
+
+    /// <summary>
+    /// Paths to RimWorld/Unity DLLs for Roslyn semantic analysis.
+    /// If not specified, semantic analysis will work with reduced accuracy
+    /// (some external references won't be resolved).
+    /// </summary>
+    public IReadOnlyList<string>? ReferenceDllPaths { get; init; }
+
+    /// <summary>
+    /// Whether to use Roslyn semantic analysis for accurate dependency resolution.
+    /// If false, uses the faster but less accurate syntactic analysis.
+    /// Default: false (syntactic analysis is more stable without full DLL references)
+    /// </summary>
+    public bool UseSemanticAnalysis { get; init; } = false;
 }

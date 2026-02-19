@@ -5,6 +5,10 @@ namespace RimWorldCodeRag.Retrieval;
 public sealed class RoughSearchResult
 {
     public required string SymbolId { get; init; }
+    /// <summary>
+    /// Integer node ID for efficient exact lookup. Use #NodeId format in get-item/get-uses/get-used-by.
+    /// </summary>
+    public int? NodeId { get; init; }
     public required string Path { get; init; }
     public required LanguageKind Language { get; init; }
     public required SymbolKind SymbolKind { get; init; }

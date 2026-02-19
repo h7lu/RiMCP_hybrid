@@ -10,7 +10,6 @@ namespace RimWorldCodeRag.Retrieval;
 
 public sealed class GraphQuerier : IDisposable
 {
-    private const int PageSize = 30;
     private const double PageRankScaleFactor = 1e7;
     private readonly JaroWinkler _jaroWinkler = new JaroWinkler();
 
@@ -65,14 +64,16 @@ public sealed class GraphQuerier : IDisposable
     //执行检索
     public PagedGraphQueryResult Query(GraphQueryConfig config)
     {
-        if (!_symbolToIndex.TryGetValue(config.SymbolId, out var nodeIndex))
+        // First try to resolve the symbol reference (handles #nodeId format and fuzzy matching)
+        var resolvedSymbol = ResolveSymbolReference(config.SymbolId);
+        if (resolvedSymbol == null || !_symbolToIndex.TryGetValue(resolvedSymbol, out var nodeIndex))
         {
             return new PagedGraphQueryResult
             {
                 Results = Array.Empty<GraphQueryResult>(),
                 TotalCount = 0,
                 Page = config.Page,
-                PageSize = PageSize
+                PageSize = config.PageSize
             };
         }
 
@@ -124,8 +125,8 @@ public sealed class GraphQuerier : IDisposable
             .ToList();
 
         var pagedResults = allResults
-            .Skip((config.Page - 1) * PageSize)
-            .Take(PageSize)
+            .Skip((config.Page - 1) * config.PageSize)
+            .Take(config.PageSize)
             .ToList();
         
         return new PagedGraphQueryResult
@@ -133,7 +134,7 @@ public sealed class GraphQuerier : IDisposable
             Results = pagedResults,
             TotalCount = allResults.Count,
             Page = config.Page,
-            PageSize = PageSize
+            PageSize = config.PageSize
         };
     }
 
@@ -208,6 +209,75 @@ public sealed class GraphQuerier : IDisposable
 
     private static bool IsXmlNode(string symbolId)
         => symbolId.StartsWith("xml:", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Fuzzy symbol resolution using string similarity.
+    /// Handles cases where users provide partial or slightly incorrect symbol names.
+    /// </summary>
+    private string? ResolveSymbolFuzzy(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return null;
+
+        var queryLower = query.ToLowerInvariant();
+        var queryParts = query.Split(new[] { ':', '.', ' ', '<', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        
+        string? bestMatch = null;
+        double bestScore = 0.0;
+
+        // First pass: try prefix matching for xml symbols
+        if (query.StartsWith("xml:", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var symbol in _symbolToIndex.Keys)
+            {
+                if (symbol.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    return symbol; // Exact prefix match
+                }
+            }
+        }
+
+        // Second pass: fuzzy matching using substring matching and JaroWinkler
+        foreach (var symbol in _symbolToIndex.Keys)
+        {
+            var symbolLower = symbol.ToLowerInvariant();
+            
+            // Check if all query parts appear in the symbol (case-insensitive)
+            var allPartsMatch = queryParts.All(part => 
+                symbolLower.Contains(part.ToLowerInvariant()));
+            
+            if (allPartsMatch)
+            {
+                // Calculate score based on multiple factors
+                double score = 0.0;
+                
+                // Factor 1: JaroWinkler similarity
+                var similarity = _jaroWinkler.Similarity(queryLower, symbolLower);
+                score += similarity * 0.3;
+                
+                // Factor 2: Substring coverage (how much of the symbol is covered by query parts)
+                var totalPartLength = queryParts.Sum(p => p.Length);
+                var coverageRatio = (double)totalPartLength / symbol.Length;
+                score += Math.Min(coverageRatio, 1.0) * 0.3;
+                
+                // Factor 3: Exact part match bonus (query parts match symbol parts exactly)
+                var symbolParts = symbol.Split(new[] { ':', '.', ' ', '<', '-' }, StringSplitOptions.RemoveEmptyEntries);
+                var exactPartMatches = queryParts.Count(qp => 
+                    symbolParts.Any(sp => sp.Equals(qp, StringComparison.OrdinalIgnoreCase)));
+                var exactMatchRatio = (double)exactPartMatches / queryParts.Length;
+                score += exactMatchRatio * 0.4;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestMatch = symbol;
+                }
+            }
+        }
+
+        // Return if we have any reasonable match (all parts matched)
+        return bestMatch;
+    }
 
     private static bool IsCSharpEdge(EdgeKind kind) => kind switch
     {
@@ -354,6 +424,59 @@ public sealed class GraphQuerier : IDisposable
     public void Dispose()
     {
         //好像没啥需要释放的，索性全删了
+    }
+
+    /// <summary>
+    /// Get the integer node ID for a symbol ID.
+    /// Returns null if the symbol is not found in the graph.
+    /// </summary>
+    public int? GetNodeId(string symbolId)
+    {
+        if (_symbolToIndex.TryGetValue(symbolId, out var nodeId))
+        {
+            return nodeId;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Get the symbol ID for an integer node ID.
+    /// Returns null if the node ID is not found in the graph.
+    /// </summary>
+    public string? GetSymbolId(int nodeId)
+    {
+        if (_indexToSymbol.TryGetValue(nodeId, out var symbolId))
+        {
+            return symbolId;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Resolve a symbol reference that may be either a symbol ID or an integer node ID (prefixed with #).
+    /// Returns the resolved symbol ID, or null if not found.
+    /// </summary>
+    public string? ResolveSymbolReference(string reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference))
+        {
+            return null;
+        }
+
+        // Check if it's an integer ID (prefixed with #)
+        if (reference.StartsWith('#') && int.TryParse(reference.AsSpan(1), out var nodeId))
+        {
+            return GetSymbolId(nodeId);
+        }
+
+        // Try exact match
+        if (_symbolToIndex.ContainsKey(reference))
+        {
+            return reference;
+        }
+
+        // Try fuzzy resolution
+        return ResolveSymbolFuzzy(reference);
     }
 
     private readonly struct RawEdge

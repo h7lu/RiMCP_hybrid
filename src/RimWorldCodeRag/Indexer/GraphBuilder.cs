@@ -16,11 +16,15 @@ internal sealed class GraphBuilder
 {
     private readonly string _graphBasePath;
     private readonly int _maxDegreeOfParallelism;
+    private readonly bool _useSemanticAnalysis;
+    private readonly IReadOnlyList<string>? _referenceDllPaths;
 
-    public GraphBuilder(string databasePath, int maxDegreeOfParallelism)
+    public GraphBuilder(string databasePath, int maxDegreeOfParallelism, bool useSemanticAnalysis = true, IReadOnlyList<string>? referenceDllPaths = null)
     {
         _graphBasePath = NormalizeBasePath(databasePath);
         _maxDegreeOfParallelism = maxDegreeOfParallelism;
+        _useSemanticAnalysis = useSemanticAnalysis;
+        _referenceDllPaths = referenceDllPaths;
     }
 
     public void BuildGraph(IReadOnlyList<ChunkRecord> chunks)
@@ -49,11 +53,26 @@ internal sealed class GraphBuilder
         Console.WriteLine($"[graph] Symbol lookup: {symbolLookup.Count} unique symbols, {xmlLookup.Count} unique XML definitions");
         Console.ResetColor();
 
-        // Phase 1: 构建 C# → C# 边（现有逻辑）
+        // Create a set of all valid chunk IDs for filtering semantic analysis results
+        var validChunkIds = new HashSet<string>(chunks.Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
+
+        // Phase 1: 构建 C# → C# 边
         Console.ForegroundColor = ConsoleColor.White;
         Console.WriteLine("[graph] Phase 1: Analyzing C# code references ...");
         var allEdges = new ConcurrentBag<GraphEdge>();
-        var csharpEdges = CollectCSharpEdges(csharpChunks, symbolLookup);
+        
+        IReadOnlyCollection<GraphEdge> csharpEdges;
+        if (_useSemanticAnalysis)
+        {
+            Console.WriteLine("[graph] Using Roslyn semantic analysis for accurate dependency resolution");
+            csharpEdges = CollectCSharpEdgesWithSemanticAnalysis(csharpChunks, validChunkIds);
+        }
+        else
+        {
+            Console.WriteLine("[graph] Using syntactic analysis (less accurate, but faster)");
+            csharpEdges = CollectCSharpEdges(csharpChunks, symbolLookup);
+        }
+        
         foreach (var edge in csharpEdges)
         {
             allEdges.Add(edge);
@@ -153,6 +172,162 @@ internal sealed class GraphBuilder
 
         return fullPath;
     }
+
+    #region Semantic Analysis (M7 - New approach)
+
+    /// <summary>
+    /// Collects C# edges using Roslyn's SemanticModel for accurate symbol resolution.
+    /// This method correctly handles:
+    /// - Method overload resolution
+    /// - Static member resolution
+    /// - Inheritance and interface implementations
+    /// </summary>
+    private IReadOnlyCollection<GraphEdge> CollectCSharpEdgesWithSemanticAnalysis(
+        IReadOnlyList<ChunkRecord> csharpChunks, 
+        HashSet<string> validChunkIds)
+    {
+        var edgeBag = new ConcurrentBag<GraphEdge>();
+
+        // Group chunks by file path to process each file once
+        var chunksByFile = csharpChunks
+            .GroupBy(c => c.Path, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        var sourceDirectory = Path.GetDirectoryName(csharpChunks.FirstOrDefault()?.Path ?? ".");
+        if (string.IsNullOrEmpty(sourceDirectory))
+        {
+            sourceDirectory = ".";
+        }
+
+        // Find the common root directory for all source files
+        var allPaths = csharpChunks.Select(c => c.Path).ToList();
+        sourceDirectory = FindCommonRoot(allPaths);
+
+        Console.WriteLine($"[graph] Creating Roslyn compilation from {sourceDirectory}...");
+        var compilation = RoslynProject.CreateCompilation(sourceDirectory, _referenceDllPaths);
+
+        // Create file path to chunk mapping for efficient lookup
+        var filePathToChunks = chunksByFile;
+
+        var processed = 0;
+        var total = Math.Max(1, compilation.SyntaxTrees.Count());
+        var lastReportedPercent = -1;
+
+        // Process each syntax tree
+        Parallel.ForEach(compilation.SyntaxTrees, new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism }, tree =>
+        {
+            try
+            {
+                if (!filePathToChunks.TryGetValue(tree.FilePath, out var chunksInFile))
+                {
+                    return; // Skip files that don't have any chunks
+                }
+
+                SemanticModel semanticModel;
+                try
+                {
+                    semanticModel = compilation.GetSemanticModel(tree);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[graph] Error getting SemanticModel for {tree.FilePath}: {ex.Message}");
+                    return;
+                }
+
+                var root = tree.GetRoot();
+
+                foreach (var chunk in chunksInFile)
+                {
+                    // Find the syntax node corresponding to this chunk
+                    var chunkSpan = new Microsoft.CodeAnalysis.Text.TextSpan(chunk.SpanStart, chunk.SpanEnd - chunk.SpanStart);
+                    var nodeInSpan = root.DescendantNodes()
+                        .FirstOrDefault(n => n.Span.Start >= chunk.SpanStart && n.Span.End <= chunk.SpanEnd && n is TypeDeclarationSyntax or MemberDeclarationSyntax);
+
+                    if (nodeInSpan == null)
+                    {
+                        // Fallback: walk the entire file with chunk ID
+                        var walker = new CSharpSemanticWalker(semanticModel, chunk.Id, validChunkIds);
+                        walker.Visit(root);
+                        foreach (var edge in walker.Edges)
+                        {
+                            edgeBag.Add(edge);
+                        }
+                    }
+                    else
+                    {
+                        // Walk only the specific node for this chunk
+                        var walker = new CSharpSemanticWalker(semanticModel, chunk.Id, validChunkIds);
+                        walker.Visit(nodeInSpan);
+                        foreach (var edge in walker.Edges)
+                        {
+                            edgeBag.Add(edge);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[graph] Error processing {tree.FilePath}: {ex.Message}");
+            }
+
+            var current = Interlocked.Increment(ref processed);
+            var percent = (current * 100) / total;
+            if (percent > lastReportedPercent)
+            {
+                var oldPercent = Interlocked.Exchange(ref lastReportedPercent, percent);
+                if (percent > oldPercent)
+                {
+                    Console.Write($"\r[graph] Semantic analysis {current}/{total} ({percent}%) - {edgeBag.Count} edges found");
+                }
+            }
+        });
+
+        Console.WriteLine($"\n[graph] Semantic analysis complete: {processed} files analyzed, {edgeBag.Count} edges found");
+
+        return edgeBag;
+    }
+
+    private static string FindCommonRoot(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+        {
+            return ".";
+        }
+
+        // Get the full paths and normalize them
+        var normalizedPaths = paths
+            .Select(p => Path.GetFullPath(Path.GetDirectoryName(p) ?? "."))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (normalizedPaths.Count == 0)
+        {
+            return ".";
+        }
+
+        var commonRoot = normalizedPaths[0];
+
+        foreach (var dir in normalizedPaths.Skip(1))
+        {
+            // Shrink commonRoot until both paths share it as a prefix
+            while (!string.IsNullOrEmpty(commonRoot) && 
+                   !dir.StartsWith(commonRoot, StringComparison.OrdinalIgnoreCase) &&
+                   !dir.StartsWith(commonRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                var parent = Path.GetDirectoryName(commonRoot);
+                if (string.IsNullOrEmpty(parent))
+                {
+                    // No common root found, return root directory
+                    return Path.GetPathRoot(normalizedPaths[0]) ?? ".";
+                }
+                commonRoot = parent;
+            }
+        }
+
+        return string.IsNullOrEmpty(commonRoot) ? "." : commonRoot;
+    }
+
+    #endregion
 
     private IReadOnlyCollection<GraphEdge> CollectCSharpEdges(IReadOnlyList<ChunkRecord> csharpChunks, IDictionary<string, string[]> symbolLookup)
     {

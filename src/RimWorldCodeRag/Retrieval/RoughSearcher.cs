@@ -100,7 +100,7 @@ public sealed class RoughSearcher : IDisposable
             semanticMatches = matches.Take(semanticTake).ToList();
         }
 
-        Console.WriteLine($"[debug] Lexical pre-filter: {lexicalMatches.Count}, Semantic candidates requested: {_config.MaxResults}, returned: {semanticMatches.Count}");
+        Console.Error.WriteLine($"[debug] Lexical pre-filter: {lexicalMatches.Count}, Semantic candidates requested: {_config.MaxResults}, returned: {semanticMatches.Count}");
 
         return MergeResults(lexicalMatches, semanticMatches, _config.MaxResults);
     }

@@ -6,11 +6,44 @@ using RimWorldCodeRag.Common;
 
 namespace RimWorldCodeRag.Indexer;
 
-//xml的引用关系其实是我用硬代码一个个写的，不保证包含所有关系。如果有一种更优雅的解法就好了
+// M8: Dynamic XML-to-C# Link Extraction
+// Instead of hardcoding XML tag names, we now support dynamic discovery of linkable fields.
+// The DefFieldAnalyzer uses Roslyn to find all Def class fields that can link to C# classes.
 
 //从 XML Def 中提取图谱边
 public sealed class XmlGraphExtractor
 {
+    /// <summary>
+    /// Dynamic set of field names that can link to C# classes.
+    /// If not set, falls back to the hardcoded list for backward compatibility.
+    /// </summary>
+    public IReadOnlySet<string>? DynamicLinkableFieldNames { get; set; }
+
+    /// <summary>
+    /// Default hardcoded field names for backward compatibility when dynamic analysis is not available.
+    /// </summary>
+    private static readonly HashSet<string> DefaultClassFieldCandidates = new(StringComparer.Ordinal)
+    {
+        "thingClass",
+        "workerClass",
+        "driverClass",
+        "hediffClass",
+        "class",
+        "aiController",
+        "roomContentsWorkerType",
+        "graphicClass",
+        "verbClass",
+        "abilityClass",
+        "compClass",
+        "placeWorkers",
+        "jobDriver",
+        "outcomeEffect",
+        "behaviorWorker",
+        "thoughtWorker",
+        "interactionWorker",
+        "relationWorker"
+    };
+
     //提取 XML → C# 边（XmlBindsClass, XmlUsesComp）
     public IEnumerable<GraphEdge> ExtractXmlToCSharpEdges(XElement defElement, string defId, string? defType)
     {
@@ -19,6 +52,60 @@ public sealed class XmlGraphExtractor
             yield return edge;
         }
 
+        foreach (var edge in ExtractUsesCompEdges(defElement, defId))
+        {
+            yield return edge;
+        }
+        
+        // M8: Extract edges using dynamic field names
+        foreach (var edge in ExtractDynamicBindClassEdges(defElement, defId))
+        {
+            yield return edge;
+        }
+    }
+
+    /// <summary>
+    /// Extracts XML → C# edges using the dynamically discovered linkable field names.
+    /// This implements M8: Dynamic XML-to-C# Link Extraction.
+    /// </summary>
+    public IEnumerable<GraphEdge> ExtractXmlToCSharpEdges(
+        XElement defElement, 
+        string defId, 
+        string? defType,
+        IReadOnlySet<string> linkableFieldNames)
+    {
+        // Use the provided dynamic field names
+        foreach (var fieldName in linkableFieldNames)
+        {
+            // Check direct child elements
+            var className = defElement.Element(fieldName)?.Value;
+            if (!string.IsNullOrWhiteSpace(className) && LooksLikeClassName(className))
+            {
+                yield return new GraphEdge
+                {
+                    SourceId = defId,
+                    TargetId = NormalizeClassName(className),
+                    Kind = EdgeKind.XmlBindsClass
+                };
+            }
+            
+            // Check nested elements (e.g., graphicData/graphicClass)
+            foreach (var nestedElement in defElement.Descendants(fieldName))
+            {
+                var nestedClassName = nestedElement.Value;
+                if (!string.IsNullOrWhiteSpace(nestedClassName) && LooksLikeClassName(nestedClassName))
+                {
+                    yield return new GraphEdge
+                    {
+                        SourceId = defId,
+                        TargetId = NormalizeClassName(nestedClassName),
+                        Kind = EdgeKind.XmlBindsClass
+                    };
+                }
+            }
+        }
+        
+        // Also extract comps edges (these have a special structure)
         foreach (var edge in ExtractUsesCompEdges(defElement, defId))
         {
             yield return edge;
@@ -51,7 +138,7 @@ public sealed class XmlGraphExtractor
     
     #region XML → C# Edge Extraction
 
-    //类绑定边（thingClass, workerClass, verbClass, graphicClass等）
+    //类绑定边（thingClass, workerClass, verbClass, graphicClass等）- legacy hardcoded approach
     private IEnumerable<GraphEdge> ExtractBindClassEdges(XElement defElement, string defId)
     {
         var classFieldCandidates = new[]
@@ -110,6 +197,119 @@ public sealed class XmlGraphExtractor
         }
     }
 
+    /// <summary>
+    /// Extract class binding edges using dynamic or default field names.
+    /// </summary>
+    private IEnumerable<GraphEdge> ExtractDynamicBindClassEdges(XElement defElement, string defId)
+    {
+        var fieldNames = DynamicLinkableFieldNames ?? DefaultClassFieldCandidates;
+        var emittedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        
+        foreach (var fieldName in fieldNames)
+        {
+            // Check direct child elements
+            var className = defElement.Element(fieldName)?.Value;
+            if (!string.IsNullOrWhiteSpace(className) && LooksLikeClassName(className))
+            {
+                var targetId = NormalizeClassName(className);
+                if (emittedTargets.Add(targetId))
+                {
+                    yield return new GraphEdge
+                    {
+                        SourceId = defId,
+                        TargetId = targetId,
+                        Kind = EdgeKind.XmlBindsClass
+                    };
+                }
+            }
+            
+            // Check nested elements anywhere in the tree
+            foreach (var nestedElement in defElement.Descendants(fieldName))
+            {
+                var nestedClassName = nestedElement.Value;
+                if (!string.IsNullOrWhiteSpace(nestedClassName) && LooksLikeClassName(nestedClassName))
+                {
+                    var targetId = NormalizeClassName(nestedClassName);
+                    if (emittedTargets.Add(targetId))
+                    {
+                        yield return new GraphEdge
+                        {
+                            SourceId = defId,
+                            TargetId = targetId,
+                            Kind = EdgeKind.XmlBindsClass
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Checks if a string value looks like a C# class name.
+    /// </summary>
+    private static bool LooksLikeClassName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        
+        // Skip if it looks like a number or boolean
+        if (int.TryParse(value, out _) || 
+            float.TryParse(value, out _) ||
+            value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("false", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        
+        // Skip if it contains spaces or special characters (not a valid class name)
+        if (value.Contains(' ') || value.Contains('\n') || value.Contains('<') || value.Contains('>'))
+        {
+            return false;
+        }
+        
+        // Should start with a letter or underscore
+        if (!char.IsLetter(value[0]) && value[0] != '_')
+        {
+            return false;
+        }
+        
+        // Common class name patterns
+        if (value.Contains('.'))
+        {
+            // Looks like a fully qualified name
+            return true;
+        }
+        
+        // Common RimWorld class prefixes
+        var commonPrefixes = new[] 
+        { 
+            "Comp", "Thing", "Building", "Verb", "Graphic", "Hediff", 
+            "Job", "Work", "Pawn", "Inc", "Ritual", "Quest", "Stat",
+            "Room", "Place", "Think", "Gen", "AI"
+        };
+        
+        foreach (var prefix in commonPrefixes)
+        {
+            if (value.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        
+        // If it ends with common suffixes
+        var commonSuffixes = new[] { "Worker", "Driver", "Class", "Handler", "Comp", "Effect" };
+        foreach (var suffix in commonSuffixes)
+        {
+            if (value.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        
+        // Default: assume it could be a class name if it's PascalCase
+        return char.IsUpper(value[0]) && value.Length > 2;
+    }
+
     //comps 列表中的 CompProperties_*）
     private IEnumerable<GraphEdge> ExtractUsesCompEdges(XElement defElement, string defId)
     {
@@ -132,22 +332,27 @@ public sealed class XmlGraphExtractor
     //规范化类名确保包含命名空间
     private string NormalizeClassName(string className)
     {
-        //其实是乱写的，主打一个猜
+        // Already has namespace
         if (className.Contains('.'))
             return className;
         
+        // Common RimWorld prefixes → RimWorld namespace
         if (className.StartsWith("CompProperties_") || className.StartsWith("Comp_"))
             return $"RimWorld.{className}";
-       
-        if (className.StartsWith("Verb_"))
+        
+        // Verse namespace patterns
+        if (className.StartsWith("Verb_") || className.StartsWith("Graphic_") || 
+            className.StartsWith("Hediff") || className.StartsWith("ThinkNode"))
             return $"Verse.{className}";
         
-        if (className.StartsWith("Graphic_"))
-            return $"Verse.{className}";
-       
-        if (className.StartsWith("Building_") || className.StartsWith("Thing_"))
+        // RimWorld namespace patterns
+        if (className.StartsWith("Building_") || className.StartsWith("Thing_") ||
+            className.StartsWith("Job") || className.StartsWith("Work") ||
+            className.StartsWith("Incident") || className.StartsWith("Quest") ||
+            className.StartsWith("Ritual") || className.StartsWith("Room"))
             return $"RimWorld.{className}";
       
+        // Default to RimWorld namespace
         return $"RimWorld.{className}";
     }
     
